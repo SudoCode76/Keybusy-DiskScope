@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Keybusy DiskScope (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Keybusy DiskScope (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+﻿/Keybusy DiskScope/build_detailed.txt
+/Keybusy DiskScope/xaml_output_pretty2.json
+/Keybusy DiskScope/xamlcompiler_out.txt
+/Keybusy DiskScope/skills-lock.json
+
+
+## [ Windows App SDK / WinUI Específicos ]
+Generated Files/
+_vcpkg/
+*.appx
+*.msix
+*.msixbundle
+*.appxbundle
+
+
+## [ Otros ]
+.DS_Store

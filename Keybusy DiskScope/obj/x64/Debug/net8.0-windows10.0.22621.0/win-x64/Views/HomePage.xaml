@@ -1,0 +1,128 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page x:ConnectionId='1'
+    x:Class="Keybusy_DiskScope.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Keybusy_DiskScope.Views"
+    xmlns:vm="using:Keybusy_DiskScope.ViewModels"
+    xmlns:models="using:Keybusy_DiskScope.Models"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    mc:Ignorable="d">
+
+    <Page.DataContext>
+        <vm:HomeViewModel x:ConnectionId='2' x:Name="ViewModel" />
+    </Page.DataContext>
+
+    <Page.Resources>
+        <!-- ViewModel resolved in code-behind via DI or set as DataContext at runtime; keep DataTemplate x:DataType for type-safety -->
+        <Style TargetType="TextBlock" x:Key="HeaderTitle">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Vertical" Spacing="6">
+            <TextBlock Text="Mis Unidades" Style="{StaticResource HeaderTitle}" />
+            <TextBlock Text="Seleccione una unidad para comenzar el análisis detallado"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,18,0,0" VerticalScrollBarVisibility="Auto">
+            <controls:ItemsRepeater x:ConnectionId='3'                                                      >
+                <controls:ItemsRepeater.Layout>
+                    <controls:StackLayout Orientation="Vertical" />
+                </controls:ItemsRepeater.Layout>
+                <controls:ItemsRepeater.ItemTemplate>
+                    <DataTemplate                               >
+                        <Border x:ConnectionId='5' Style="{StaticResource CardBorderStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Left icon block -->
+                                <Border Grid.Column="0"
+                                        CornerRadius="8"
+                                        Background="{StaticResource CardAltBrush}"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch">
+                                    <Viewbox Margin="12">
+                                        <FontIcon Glyph="&#xE7C8;" />
+                                    </Viewbox>
+                                </Border>
+
+                                <!-- Right content -->
+                                <Grid Grid.Column="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Orientation="Horizontal" Grid.Row="0" VerticalAlignment="Center">
+                                        <TextBlock x:ConnectionId='14'                                           FontSize="18" FontWeight="SemiBold" />
+                                         <Border Style="{StaticResource PillStyle}" Margin="12,0,0,0">
+                                             <TextBlock x:ConnectionId='15'                                         FontSize="12" />
+                                        </Border>
+                                        <Button Style="{ThemeResource ButtonRevealStyle}" HorizontalAlignment="Right" Margin="12,0,0,0" AutomationProperties.Name="Más opciones">
+                                            <FontIcon Glyph="&#xE712;" />
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="Detalles"/>
+                                                    <MenuFlyoutItem Text="Abrir en Explorador"/>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </StackPanel>
+
+                                     <TextBlock x:ConnectionId='6' Grid.Row="1"                                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" Margin="0,6,0,8" />
+
+                                    <Grid Grid.Row="2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="160" />
+                                        </Grid.ColumnDefinitions>
+
+                                         <StackPanel Orientation="Vertical">
+                                              <TextBlock x:ConnectionId='11'                                           FontSize="28" FontWeight="Bold" />
+                                             <TextBlock Text="USADOS" FontSize="11" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                              <ProgressBar x:ConnectionId='12'                                               Maximum="100" Height="8" Margin="0,12,0,6" />
+                                              <TextBlock x:ConnectionId='13'                                           FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                         </StackPanel>
+
+                                          <TextBlock x:ConnectionId='10' Grid.Column="1"                                            HorizontalAlignment="Right" FontSize="20" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                    </Grid>
+
+                                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,12,0,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                                            <FontIcon Glyph="&#xE9CA;" />
+                                             <TextBlock x:ConnectionId='8'                                                  />
+                                             <TextBlock Text="·" />
+                                              <TextBlock x:ConnectionId='9'                                            Foreground="Green" />
+                                        </StackPanel>
+
+                                        <Button x:ConnectionId='7' Content="Analizar Unidad"
+                                                                           
+                                                AutomationProperties.Name="Analizar unidad"
+                                                Style="{StaticResource PrimaryButtonStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </controls:ItemsRepeater.ItemTemplate>
+            </controls:ItemsRepeater>
+        </ScrollViewer>
+    </Grid>
+</Page>
+
