@@ -39,12 +39,14 @@ public partial class App : Application
             options.UseSqlite($"Data Source={dbPath}"));
 
         // Domain services
+        services.AddSingleton<IDriveInfoService, DriveInfoService>();
         services.AddSingleton<IScanService, ScanService>();
         services.AddSingleton<ISnapshotService, SnapshotService>();
         services.AddSingleton<IDiffService, DiffService>();
         services.AddSingleton<INavigationService, NavigationService>();
 
         // ViewModels — transient: fresh instance each navigation
+        services.AddTransient<HomeViewModel>();
         services.AddTransient<ScanViewModel>();
         services.AddTransient<SnapshotsViewModel>();
         services.AddTransient<CompareViewModel>();

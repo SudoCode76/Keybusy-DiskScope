@@ -11,10 +11,6 @@
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d">
 
-    <Page.DataContext>
-        <vm:HomeViewModel x:Name="ViewModel" />
-    </Page.DataContext>
-
     <Page.Resources>
         <!-- ViewModel resolved in code-behind via DI or set as DataContext at runtime; keep DataTemplate x:DataType for type-safety -->
         <Style TargetType="TextBlock" x:Key="HeaderTitle">
@@ -42,21 +38,22 @@
                 </controls:ItemsRepeater.Layout>
                 <controls:ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="models:DriveModel">
-                        <Border Style="{StaticResource CardBorderStyle}">
+                        <Border Style="{StaticResource CardBorderStyle}" MinHeight="140">
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="140" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Left icon block -->
+                                <!-- Left icon block (fixed width, center content) -->
                                 <Border Grid.Column="0"
+                                        Width="140"
                                         CornerRadius="8"
-                                        Background="{StaticResource CardAltBrush}"
-                                        HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Stretch">
-                                    <Viewbox Margin="12">
-                                        <FontIcon Glyph="&#xE7C8;" />
+                                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center">
+                                    <Viewbox Margin="12" Stretch="Uniform">
+                                        <FontIcon Glyph="&#xE7C8;" FontSize="48" />
                                     </Viewbox>
                                 </Border>
 
@@ -69,12 +66,21 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <StackPanel Orientation="Horizontal" Grid.Row="0" VerticalAlignment="Center">
-                                        <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" FontSize="18" FontWeight="SemiBold" />
-                                         <Border Style="{StaticResource PillStyle}" Margin="12,0,0,0">
-                                             <TextBlock Text="{x:Bind TypeLabel, Mode=OneTime}" FontSize="12" />
-                                        </Border>
-                                        <Button Style="{ThemeResource ButtonRevealStyle}" HorizontalAlignment="Right" Margin="12,0,0,0" AutomationProperties.Name="Más opciones">
+                                    <!-- Title row: title + pill on the left, actions on the right -->
+                                    <Grid Grid.Row="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Grid.Column="0">
+                                            <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" FontSize="18" FontWeight="SemiBold" />
+                                            <Border Style="{StaticResource PillStyle}" Margin="12,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind TypeLabel, Mode=OneTime}" FontSize="12" />
+                                            </Border>
+                                        </StackPanel>
+
+                                         <Button Grid.Column="1" Margin="12,0,0,0" AutomationProperties.Name="Más opciones">
                                             <FontIcon Glyph="&#xE712;" />
                                             <Button.Flyout>
                                                 <MenuFlyout>
@@ -83,9 +89,9 @@
                                                 </MenuFlyout>
                                             </Button.Flyout>
                                         </Button>
-                                    </StackPanel>
+                                    </Grid>
 
-                                     <TextBlock Grid.Row="1" Text="{x:Bind SubTitle, Mode=OneTime}" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" Margin="0,6,0,8" />
+                                    <TextBlock Grid.Row="1" Text="{x:Bind SubTitle, Mode=OneTime}" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" Margin="0,6,0,8" />
 
                                     <Grid Grid.Row="2">
                                         <Grid.ColumnDefinitions>
@@ -93,28 +99,28 @@
                                             <ColumnDefinition Width="160" />
                                         </Grid.ColumnDefinitions>
 
-                                         <StackPanel Orientation="Vertical">
-                                              <TextBlock Text="{x:Bind UsedDisplay, Mode=OneTime}" FontSize="28" FontWeight="Bold" />
-                                             <TextBlock Text="USADOS" FontSize="11" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
-                                              <ProgressBar Value="{x:Bind UsedPercentage, Mode=OneTime}" Maximum="100" Height="8" Margin="0,12,0,6" />
-                                              <TextBlock Text="{x:Bind FreeDisplay, Mode=OneTime}" FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
-                                         </StackPanel>
+                                        <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind UsedDisplay, Mode=OneTime}" FontSize="28" FontWeight="Bold" />
+                                            <TextBlock Text="USADOS" FontSize="11" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                            <ProgressBar Value="{x:Bind UsedPercentage, Mode=OneTime}" Maximum="100" Height="8" Margin="0,12,0,6" />
+                                            <TextBlock Text="{x:Bind FreeDisplay, Mode=OneTime}" FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                        </StackPanel>
 
-                                          <TextBlock Grid.Column="1" Text="{x:Bind TotalDisplay, Mode=OneTime}" HorizontalAlignment="Right" FontSize="20" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind TotalDisplay, Mode=OneTime}" HorizontalAlignment="Right" FontSize="20" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" VerticalAlignment="Center" />
                                     </Grid>
 
                                     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,12,0,0">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
                                             <FontIcon Glyph="&#xE9CA;" />
-                                             <TextBlock Text="{x:Bind TemperatureDisplay, Mode=OneTime}" />
-                                             <TextBlock Text="·" />
-                                              <TextBlock Text="{x:Bind HealthStatus, Mode=OneTime}" Foreground="Green" />
+                                            <TextBlock Text="{x:Bind TemperatureDisplay, Mode=OneTime}" />
+                                            <TextBlock Text="·" />
+                                            <TextBlock Text="{x:Bind HealthStatus, Mode=OneTime}" Foreground="Green" />
                                         </StackPanel>
 
                                         <Button Content="Analizar Unidad"
                                                 Click="AnalyzeButton_Click"
                                                 AutomationProperties.Name="Analizar unidad"
-                                                Style="{StaticResource PrimaryButtonStyle}" />
+                                                Style="{StaticResource AccentButtonStyle}" />
                                     </StackPanel>
                                 </Grid>
                             </Grid>

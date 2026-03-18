@@ -1,23 +1,26 @@
+using Keybusy_DiskScope.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Keybusy_DiskScope.ViewModels;
 
 namespace Keybusy_DiskScope.Views;
 
 public sealed partial class HomePage : Page
 {
+    public HomeViewModel ViewModel { get; }
+
     public HomePage()
     {
-        this.InitializeComponent();
+        ViewModel = App.Services.GetRequiredService<HomeViewModel>();
+        InitializeComponent();
+        DataContext = ViewModel;
     }
 
-    private void AnalyzeButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private void AnalyzeButton_Click(object sender, RoutedEventArgs e)
     {
-        // Minimal wiring: the ViewModel command will be implemented next.
-        if (DataContext is HomeViewModel vm && sender is Button b && b.DataContext is Models.DriveModel drive)
+        if (sender is Button b && b.DataContext is Models.DriveModel drive)
         {
-            _ = vm.AnalyzeCommand.ExecuteAsync(drive);
+            _ = ViewModel.AnalyzeCommand.ExecuteAsync(drive);
         }
     }
 }
