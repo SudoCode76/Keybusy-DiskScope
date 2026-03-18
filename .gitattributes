@@ -1,0 +1,26 @@
+# Normalize text files and mark common binaries
+* text=auto
+
+# Explicit text file types
+*.cs     text
+*.xaml   text
+*.xaml.cs text
+*.csproj text
+*.sln    text
+*.props  text
+*.targets text
+*.xml    text
+
+# Treat assets and compiled artifacts as binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.ico    binary
+*.dll    binary
+*.exe    binary
+*.pdb    binary
+*.zip    binary
+*.msix   binary
+*.appx   binary
+
+# End of file
