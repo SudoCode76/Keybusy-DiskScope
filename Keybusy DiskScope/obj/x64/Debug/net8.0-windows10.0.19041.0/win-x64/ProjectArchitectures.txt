@@ -1,1 +1,0 @@
-D:\Trabajando\WinUI\Keybusy DiskScope\Keybusy DiskScope\Keybusy DiskScope.csproj;x64
