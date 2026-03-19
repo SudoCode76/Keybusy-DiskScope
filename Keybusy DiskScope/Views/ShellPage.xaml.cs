@@ -10,6 +10,7 @@ public sealed partial class ShellPage : Page
     private static readonly Dictionary<string, Type> _pages = new()
     {
         { "HomePage",      typeof(HomePage) },
+        { "ScanPage",      typeof(ScanPage) },
         { "SnapshotsPage", typeof(SnapshotsPage) },
         { "ComparePage",   typeof(ComparePage) },
     };

@@ -7,10 +7,10 @@
     xmlns:converters="using:Keybusy_DiskScope.Converters">
     <Application.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <ResourceDictionary Source="/Resources/Styles.xaml" />
-            </ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary.MergedDictionaries>
+            <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            <ResourceDictionary Source="/Resources/Styles.xaml" />
+        </ResourceDictionary.MergedDictionaries>
 
             <AcrylicBrush x:Key="ShellAcrylicBrush"
                           TintColor="#1B1B1B"

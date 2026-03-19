@@ -4,6 +4,20 @@ namespace Keybusy_DiskScope.Models;
 
 public sealed class DriveModel : INotifyPropertyChanged
 {
+    private string _rootPath = string.Empty;
+    public string RootPath
+    {
+        get => _rootPath;
+        set
+        {
+            if (value != _rootPath)
+            {
+                _rootPath = value;
+                OnPropertyChanged(nameof(RootPath));
+            }
+        }
+    }
+
     private string _displayName = string.Empty;
     public string DisplayName
     {

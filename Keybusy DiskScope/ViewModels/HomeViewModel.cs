@@ -8,17 +8,22 @@ namespace Keybusy_DiskScope.ViewModels;
 public partial class HomeViewModel : ObservableObject
 {
     private readonly IDriveInfoService _driveInfoService;
+    private readonly INavigationService _navigationService;
     private readonly ILogger<HomeViewModel> _logger;
 
-    public ObservableCollection<Models.DriveModel> Drives { get; } = new();
+    public ObservableCollection<DriveCardViewModel> Drives { get; } = new();
     public ObservableCollection<string> DriveDiagnostics { get; } = new();
 
     public IAsyncRelayCommand RefreshCommand { get; }
     public IAsyncRelayCommand<Models.DriveModel> AnalyzeCommand { get; }
 
-    public HomeViewModel(IDriveInfoService driveInfoService, ILogger<HomeViewModel> logger)
+    public HomeViewModel(
+        IDriveInfoService driveInfoService,
+        INavigationService navigationService,
+        ILogger<HomeViewModel> logger)
     {
         _driveInfoService = driveInfoService;
+        _navigationService = navigationService;
         _logger = logger;
 
         RefreshCommand = new AsyncRelayCommand(LoadDrivesAsync);
@@ -48,6 +53,7 @@ public partial class HomeViewModel : ObservableObject
 
                 var model = new Models.DriveModel
                 {
+                    RootPath = drive.RootPath,
                     DisplayName = displayName,
                     TypeLabel = MapTypeLabel(drive, systemRoot),
                     SubTitle = BuildSubtitle(drive),
@@ -63,7 +69,7 @@ public partial class HomeViewModel : ObservableObject
                         : drive.HealthStatus
                 };
 
-                Drives.Add(model);
+                Drives.Add(new DriveCardViewModel(model, AnalyzeCommand));
             }
 
             UpdateDiagnostics(result.Diagnostics);
@@ -144,7 +150,7 @@ public partial class HomeViewModel : ObservableObject
             return Task.CompletedTask;
         }
 
-        // placeholder - actual scan logic lives in ScanService and ScanViewModel
+        _navigationService.NavigateTo("ScanPage", drive.RootPath);
         return Task.CompletedTask;
     }
 }

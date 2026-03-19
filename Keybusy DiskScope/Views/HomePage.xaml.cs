@@ -18,14 +18,6 @@ public sealed partial class HomePage : Page
         DataContext = ViewModel;
     }
 
-    private void AnalyzeButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button b && b.DataContext is Models.DriveModel drive)
-        {
-            _ = ViewModel.AnalyzeCommand.ExecuteAsync(drive);
-        }
-    }
-
     private void RelaunchAsAdmin_Click(object sender, RoutedEventArgs e)
     {
         try

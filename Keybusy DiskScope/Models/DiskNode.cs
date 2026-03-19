@@ -11,12 +11,21 @@ public sealed class DiskNode
     public long SizeBytes { get; set; }
     public string Extension { get; init; } = string.Empty;
     public DateTime LastModified { get; init; }
+    public int FileCount { get; set; }
+    public int FolderCount { get; set; }
+    public double SizePercent { get; set; }
 
     /// <summary>Child nodes (only populated for directories).</summary>
     public List<DiskNode> Children { get; init; } = new();
 
     /// <summary>Human-readable size string, e.g. "1.2 GB".</summary>
     public string DisplaySize => FormatSize(SizeBytes);
+
+    public string DisplayPercent => SizePercent <= 0 ? "0%" : $"{SizePercent:0}%";
+
+    public string DisplayFileCount => FileCount.ToString("N0");
+
+    public string DisplayLastModified => LastModified.ToString("g");
 
     /// <summary>Icon glyph for the node type (Segoe Fluent Icons).</summary>
     public string IconGlyph => IsDirectory ? "\uE8B7" : "\uE8A5"; // Folder / Document

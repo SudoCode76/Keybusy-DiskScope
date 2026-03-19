@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Keybusy_DiskScope.Views.HomePage"
+    x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Keybusy_DiskScope.Views"
@@ -38,7 +39,7 @@
                     <controls:StackLayout Orientation="Vertical" />
                 </controls:ItemsRepeater.Layout>
                 <controls:ItemsRepeater.ItemTemplate>
-                    <DataTemplate x:DataType="models:DriveModel" x:DefaultBindMode="OneTime">
+                    <DataTemplate x:DataType="vm:DriveCardViewModel" x:DefaultBindMode="OneTime">
                         <Border Style="{StaticResource CardBorderStyle}" MinHeight="140">
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
@@ -75,9 +76,9 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Grid.Column="0">
-                                            <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" FontSize="18" FontWeight="SemiBold" />
+                                            <TextBlock Text="{x:Bind Drive.DisplayName, Mode=OneTime}" FontSize="18" FontWeight="SemiBold" />
                                             <Border Style="{StaticResource PillStyle}" Margin="12,0,0,0" VerticalAlignment="Center">
-                                                <TextBlock Text="{x:Bind TypeLabel, Mode=OneTime}" FontSize="12" />
+                                                <TextBlock Text="{x:Bind Drive.TypeLabel, Mode=OneTime}" FontSize="12" />
                                             </Border>
                                         </StackPanel>
 
@@ -92,7 +93,7 @@
                                         </Button>
                                     </Grid>
 
-                                    <TextBlock Grid.Row="1" Text="{x:Bind SubTitle, Mode=OneTime}" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" Margin="0,6,0,8" />
+                                    <TextBlock Grid.Row="1" Text="{x:Bind Drive.SubTitle, Mode=OneTime}" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" Margin="0,6,0,8" />
 
                                     <Grid Grid.Row="2">
                                         <Grid.ColumnDefinitions>
@@ -101,25 +102,26 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Orientation="Vertical" VerticalAlignment="Center">
-                                            <TextBlock Text="{x:Bind UsedDisplay, Mode=OneTime}" FontSize="28" FontWeight="Bold" />
+                                            <TextBlock Text="{x:Bind Drive.UsedDisplay, Mode=OneTime}" FontSize="28" FontWeight="Bold" />
                                             <TextBlock Text="USADOS" FontSize="11" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
-                                            <ProgressBar Value="{x:Bind UsedPercentage, Mode=OneTime}" Maximum="100" Height="8" Margin="0,12,0,6" />
-                                            <TextBlock Text="{x:Bind FreeDisplay, Mode=OneTime}" FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                            <ProgressBar Value="{x:Bind Drive.UsedPercentage, Mode=OneTime}" Maximum="100" Height="8" Margin="0,12,0,6" />
+                                            <TextBlock Text="{x:Bind Drive.FreeDisplay, Mode=OneTime}" FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
                                         </StackPanel>
 
-                                        <TextBlock Grid.Column="1" Text="{x:Bind TotalDisplay, Mode=OneTime}" HorizontalAlignment="Right" FontSize="20" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Drive.TotalDisplay, Mode=OneTime}" HorizontalAlignment="Right" FontSize="20" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" VerticalAlignment="Center" />
                                     </Grid>
 
                                     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,12,0,0">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
                                             <FontIcon Glyph="&#xE9CA;" />
-                                            <TextBlock Text="{x:Bind TemperatureDisplay, Mode=OneTime}" />
+                                            <TextBlock Text="{x:Bind Drive.TemperatureDisplay, Mode=OneTime}" />
                                             <TextBlock Text="·" />
-                                            <TextBlock Text="{x:Bind HealthStatus, Mode=OneTime}" Foreground="Green" />
+                                            <TextBlock Text="{x:Bind Drive.HealthStatus, Mode=OneTime}" Foreground="Green" />
                                         </StackPanel>
 
                                         <Button Content="Analizar Unidad"
-                                                Click="AnalyzeButton_Click"
+                                                Command="{x:Bind AnalyzeCommand}"
+                                                CommandParameter="{x:Bind Drive}"
                                                 AutomationProperties.Name="Analizar unidad"
                                                 Style="{StaticResource AccentButtonStyle}" />
                                     </StackPanel>

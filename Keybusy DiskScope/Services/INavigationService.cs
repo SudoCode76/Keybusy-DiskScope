@@ -8,6 +8,7 @@ public interface INavigationService
 {
     bool CanGoBack { get; }
     void NavigateTo(Type pageType, object? parameter = null);
+    void NavigateTo(string pageKey, object? parameter = null);
     void GoBack();
 
     // Called from the window to supply the Frame used for navigation

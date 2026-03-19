@@ -8,6 +8,14 @@ namespace Keybusy_DiskScope.Services.Implementation;
 /// </summary>
 public sealed class NavigationService : INavigationService
 {
+    private static readonly Dictionary<string, Type> PageMap = new()
+    {
+        { "HomePage", typeof(Views.HomePage) },
+        { "ScanPage", typeof(Views.ScanPage) },
+        { "SnapshotsPage", typeof(Views.SnapshotsPage) },
+        { "ComparePage", typeof(Views.ComparePage) }
+    };
+
     private Frame? _frame;
 
     public bool CanGoBack => _frame?.CanGoBack ?? false;
@@ -32,6 +40,16 @@ public sealed class NavigationService : INavigationService
     {
         if (_frame is null) throw new InvalidOperationException("Frame not set. Call SetFrame() first.");
         _frame.Navigate(pageType, parameter);
+    }
+
+    public void NavigateTo(string pageKey, object? parameter = null)
+    {
+        if (!PageMap.TryGetValue(pageKey, out var pageType))
+        {
+            throw new ArgumentException($"Unknown page key: {pageKey}", nameof(pageKey));
+        }
+
+        NavigateTo(pageType, parameter);
     }
 
     public void GoBack()

@@ -17,10 +17,28 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string? _selectedDrive;
     [ObservableProperty] private DiskNode? _rootNode;
     [ObservableProperty] private string _snapshotName = string.Empty;
+    [ObservableProperty] private string _scanTitle = "Analisis";
+    [ObservableProperty] private string _scanSummary = string.Empty;
+    [ObservableProperty] private bool _hasResults;
+    [ObservableProperty] private string _resultsSummary = string.Empty;
+    [ObservableProperty] private string _rootDisplaySize = string.Empty;
+    [ObservableProperty] private string _rootDisplayLabel = string.Empty;
+    [ObservableProperty] private int _selectedSortIndex;
+    [ObservableProperty] private bool? _filterDirectoriesOnly;
+    [ObservableProperty] private bool? _filterLargeOnly;
 
     public bool HasError => ErrorMessage is not null;
 
     public ObservableCollection<string> AvailableDrives { get; } = new();
+    public ObservableCollection<DiskNode> DisplayNodes { get; } = new();
+    public ObservableCollection<string> SortOptions { get; } = new()
+    {
+        "Nombre",
+        "Tamano",
+        "Ocupacion",
+        "Archivos",
+        "Ultima modificacion"
+    };
 
     public ScanViewModel(
         IScanService scanService,
@@ -30,6 +48,8 @@ public partial class ScanViewModel : ObservableObject
         _scanService = scanService;
         _snapshotService = snapshotService;
         _logger = logger;
+
+        StatusText = "Seleccione una unidad y pulse Escanear.";
     }
 
     public void LoadDrives()
@@ -50,16 +70,22 @@ public partial class ScanViewModel : ObservableObject
         ErrorMessage = null;
         RootNode = null;
         ProgressValue = 0;
+        ScanSummary = string.Empty;
 
         try
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var progress = new Progress<(long BytesScanned, string CurrentPath)>(report =>
             {
                 StatusText = report.CurrentPath;
             });
 
             RootNode = await _scanService.ScanAsync(SelectedDrive, progress, ct);
+            ApplySizePercentages(RootNode);
+
+            stopwatch.Stop();
             StatusText = $"Escaneo completado: {RootNode.DisplaySize} en {SelectedDrive}";
+            ScanSummary = $"Escaneo completado en {stopwatch.Elapsed.TotalSeconds:0} segundos. {RootNode.DisplaySize} analizados.";
 
             SnapshotName = $"Escaneo {DateTime.Now:dd/MM/yyyy HH:mm}";
         }
@@ -106,4 +132,100 @@ public partial class ScanViewModel : ObservableObject
 
     partial void OnErrorMessageChanged(string? value)
         => OnPropertyChanged(nameof(HasError));
+
+    partial void OnScanSummaryChanged(string value)
+        => OnPropertyChanged(nameof(HasSummary));
+
+    partial void OnSelectedDriveChanged(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            ScanTitle = "Analisis";
+            return;
+        }
+
+        var driveLabel = value.TrimEnd('\\');
+        ScanTitle = $"Analisis: {driveLabel}";
+    }
+
+    partial void OnRootNodeChanged(DiskNode? value)
+    {
+        ApplyDisplayNodes();
+    }
+
+    partial void OnSelectedSortIndexChanged(int value)
+        => ApplyDisplayNodes();
+
+    partial void OnFilterDirectoriesOnlyChanged(bool? value)
+        => ApplyDisplayNodes();
+
+    partial void OnFilterLargeOnlyChanged(bool? value)
+        => ApplyDisplayNodes();
+
+    public bool HasSummary => !string.IsNullOrWhiteSpace(ScanSummary);
+
+    private IRelayCommand? _cancelStartScanCommand;
+
+    public IRelayCommand CancelStartScanCommand
+        => _cancelStartScanCommand ??= new RelayCommand(() => StartScanCommand.Cancel());
+
+    private static void ApplySizePercentages(DiskNode root)
+    {
+        var total = root.SizeBytes <= 0 ? 1 : root.SizeBytes;
+        ApplySizePercentages(root, total);
+    }
+
+    private static void ApplySizePercentages(DiskNode node, long totalBytes)
+    {
+        node.SizePercent = Math.Clamp(node.SizeBytes * 100d / totalBytes, 0, 100);
+        foreach (var child in node.Children)
+        {
+            ApplySizePercentages(child, totalBytes);
+        }
+    }
+
+    private void ApplyDisplayNodes()
+    {
+        DisplayNodes.Clear();
+
+        if (RootNode is null)
+        {
+            HasResults = false;
+            ResultsSummary = string.Empty;
+            RootDisplaySize = string.Empty;
+            RootDisplayLabel = string.Empty;
+            return;
+        }
+
+        IEnumerable<DiskNode> nodes = RootNode.Children;
+
+        if (FilterDirectoriesOnly == true)
+        {
+            nodes = nodes.Where(n => n.IsDirectory);
+        }
+
+        if (FilterLargeOnly == true)
+        {
+            nodes = nodes.Where(n => n.SizeBytes >= 1_073_741_824);
+        }
+
+        nodes = SelectedSortIndex switch
+        {
+            1 => nodes.OrderByDescending(n => n.SizeBytes),
+            2 => nodes.OrderByDescending(n => n.SizePercent),
+            3 => nodes.OrderByDescending(n => n.FileCount),
+            4 => nodes.OrderByDescending(n => n.LastModified),
+            _ => nodes.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+        };
+
+        foreach (var node in nodes)
+        {
+            DisplayNodes.Add(node);
+        }
+
+        HasResults = DisplayNodes.Count > 0;
+        ResultsSummary = $"{DisplayNodes.Count:N0} elementos mostrados";
+        RootDisplaySize = RootNode.DisplaySize;
+        RootDisplayLabel = $"Espacio total analizado: {RootDisplaySize}";
+    }
 }

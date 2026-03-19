@@ -47,16 +47,35 @@ public sealed class ScanService : IScanService
                     var child = ScanDirectory(sub.FullName, progress, ref totalScanned, ct);
                     node.SizeBytes += child.SizeBytes;
                     node.Children.Add(child);
+                    node.FolderCount += child.IsDirectory ? 1 : 0;
+                    node.FolderCount += child.FolderCount;
+                    node.FileCount += child.FileCount;
+                }
+                catch (DirectoryNotFoundException ex)
+                {
+                    _logger.LogWarning(ex, "Directory missing: {Path}", sub.FullName);
                 }
                 catch (UnauthorizedAccessException ex)
                 {
                     _logger.LogWarning(ex, "Access denied: {Path}", sub.FullName);
                 }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "I/O error scanning: {Path}", sub.FullName);
+                }
             }
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Directory missing during enumeration: {Path}", path);
         }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Access denied enumerating directories: {Path}", path);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "I/O error enumerating directories: {Path}", path);
         }
 
         // Scan files
@@ -76,19 +95,29 @@ public sealed class ScanService : IScanService
                     IsDirectory = false,
                     SizeBytes = size,
                     Extension = file.Extension.ToLowerInvariant(),
-                    LastModified = file.LastWriteTime
+                    LastModified = file.LastWriteTime,
+                    FileCount = 1
                 };
 
                 node.SizeBytes += size;
                 node.Children.Add(fileNode);
+                node.FileCount += 1;
 
                 Interlocked.Add(ref totalScanned, size);
                 progress?.Report((Interlocked.Read(ref totalScanned), file.FullName));
             }
         }
+        catch (DirectoryNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Directory missing enumerating files: {Path}", path);
+        }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Access denied enumerating files: {Path}", path);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "I/O error enumerating files: {Path}", path);
         }
 
         // Sort: directories first, then files, both alphabetically
