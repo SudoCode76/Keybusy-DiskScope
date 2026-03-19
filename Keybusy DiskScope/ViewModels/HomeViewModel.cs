@@ -11,6 +11,7 @@ public partial class HomeViewModel : ObservableObject
     private readonly ILogger<HomeViewModel> _logger;
 
     public ObservableCollection<Models.DriveModel> Drives { get; } = new();
+    public ObservableCollection<string> DriveDiagnostics { get; } = new();
 
     public IAsyncRelayCommand RefreshCommand { get; }
     public IAsyncRelayCommand<Models.DriveModel> AnalyzeCommand { get; }
@@ -30,7 +31,8 @@ public partial class HomeViewModel : ObservableObject
     {
         try
         {
-            var data = await _driveInfoService.GetDrivesAsync(CancellationToken.None);
+            var result = await _driveInfoService.GetDrivesAsync(CancellationToken.None);
+            var data = result.Drives;
             var systemRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
 
             Drives.Clear();
@@ -63,10 +65,22 @@ public partial class HomeViewModel : ObservableObject
 
                 Drives.Add(model);
             }
+
+            UpdateDiagnostics(result.Diagnostics);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load system drives.");
+            UpdateDiagnostics(new[] { "Error al cargar unidades. Ver log de depuracion." });
+        }
+    }
+
+    private void UpdateDiagnostics(IEnumerable<string> diagnostics)
+    {
+        DriveDiagnostics.Clear();
+        foreach (var line in diagnostics)
+        {
+            DriveDiagnostics.Add(line);
         }
     }
 

@@ -7,7 +7,15 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid>
+    <Page.Resources>
+        <LinearGradientBrush x:Key="HeroGradientBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#00000000" Offset="0" />
+            <GradientStop Color="#26000000" Offset="0.5" />
+            <GradientStop Color="#52000000" Offset="1" />
+        </LinearGradientBrush>
+    </Page.Resources>
+
+    <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <!-- Custom title bar drag region -->
             <RowDefinition Height="48" />
@@ -18,7 +26,8 @@
         <!-- Title bar -->
         <Grid x:Name="AppTitleBar"
               Grid.Row="0"
-              Padding="16,0">
+              Padding="16,0"
+              Background="Transparent">
             <StackPanel Orientation="Horizontal"
                         VerticalAlignment="Center"
                         Spacing="10">
@@ -31,7 +40,7 @@
         </Grid>
 
         <!-- NavigationView -->
-            <NavigationView
+        <NavigationView
             Grid.Row="1"
             x:Name="NavView"
             IsBackButtonVisible="Visible"
@@ -39,7 +48,8 @@
             BackRequested="NavView_BackRequested"
             ItemInvoked="NavView_ItemInvoked"
             Loaded="NavView_Loaded"
-            PaneDisplayMode="Auto">
+            PaneDisplayMode="Auto"
+            Background="Transparent">
 
             <NavigationView.MenuItems>
                 <NavigationViewItem
@@ -70,7 +80,12 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
-            <Frame x:Name="ContentFrame" />
+            <NavigationView.Content>
+                <Grid>
+                    <Rectangle Fill="{StaticResource HeroGradientBrush}" />
+                    <Frame x:Name="ContentFrame" Background="Transparent" />
+                </Grid>
+            </NavigationView.Content>
         </NavigationView>
     </Grid>
 </Page>

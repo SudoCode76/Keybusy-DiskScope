@@ -12,6 +12,12 @@
                 <ResourceDictionary Source="/Resources/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <AcrylicBrush x:Key="ShellAcrylicBrush"
+                          TintColor="#1B1B1B"
+                          TintOpacity="0.4"
+                          TintLuminosityOpacity="0.6"
+                          FallbackColor="#1B1B1B" />
+
             <converters:BoolNegationConverter x:Key="BoolNegationConverter" />
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />

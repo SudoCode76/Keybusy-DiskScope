@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 
 namespace Keybusy_DiskScope;
 
@@ -9,7 +10,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         // Allow ShellPage to designate the title bar drag region.
-        // Mica backdrop is declared in MainWindow.xaml via <Window.SystemBackdrop>.
         ExtendsContentIntoTitleBar = true;
+        SystemBackdrop = new DesktopAcrylicBackdrop();
     }
 }

@@ -9,7 +9,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    x:DefaultBindMode="OneTime">
 
     <Page.Resources>
         <!-- ViewModel resolved in code-behind via DI or set as DataContext at runtime; keep DataTemplate x:DataType for type-safety -->
@@ -37,7 +38,7 @@
                     <controls:StackLayout Orientation="Vertical" />
                 </controls:ItemsRepeater.Layout>
                 <controls:ItemsRepeater.ItemTemplate>
-                    <DataTemplate x:DataType="models:DriveModel">
+                    <DataTemplate x:DataType="models:DriveModel" x:DefaultBindMode="OneTime">
                         <Border Style="{StaticResource CardBorderStyle}" MinHeight="140">
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
