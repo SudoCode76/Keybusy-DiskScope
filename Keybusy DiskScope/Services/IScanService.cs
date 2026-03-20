@@ -5,11 +5,19 @@ namespace Keybusy_DiskScope.Services;
 /// </summary>
 public interface IScanService
 {
+    Task<DiskNode> ScanPreviewAsync(
+        string rootPath,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(
+        string directoryPath,
+        CancellationToken ct);
+
     /// <summary>
     /// Scans <paramref name="rootPath"/> recursively and returns the root node.
     /// Progress is reported as (bytesScanned, currentPath).
     /// </summary>
-    Task<DiskNode> ScanAsync(
+    Task<DiskNode> ScanFullAsync(
         string rootPath,
         IProgress<(long BytesScanned, string CurrentPath)>? progress,
         CancellationToken ct);

@@ -95,6 +95,7 @@
                     </StackPanel>
                 </Button>
                 <Button Command="{x:Bind ViewModel.SaveSnapshotCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"
                         AutomationProperties.Name="Guardar snapshot">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE74E;" />
@@ -134,13 +135,16 @@
                     Grid.Row="1"
                     x:Name="ScanTree"
                     ItemsSource="{x:Bind ViewModel.DisplayNodes}"
+                    Expanding="ScanTree_Expanding"
                     AutomationProperties.Name="Resultados del escaneo">
                     <controls:TreeView.ItemTemplate>
                         <DataTemplate x:DataType="models:DiskNode">
                             <controls:TreeViewItem ItemsSource="{x:Bind Children}"
                                                    AutomationProperties.Name="{x:Bind Name}">
                                 <controls:TreeViewItem.Content>
-                                    <Grid ColumnDefinitions="2*,Auto,Auto,Auto,Auto" Padding="8,4">
+                                    <Grid ColumnDefinitions="2*,Auto,Auto,Auto,Auto"
+                                          Padding="8,4"
+                                          Visibility="{x:Bind IsNotPlaceholder, Converter={StaticResource BoolToVisibilityConverter}}">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon Glyph="{x:Bind IconGlyph}" />
                                             <TextBlock Text="{x:Bind Name}" />

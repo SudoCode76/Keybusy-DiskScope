@@ -75,12 +75,18 @@ public partial class ScanViewModel : ObservableObject
         try
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            StatusText = "Preparando vista previa...";
+
+            RootNode = await _scanService.ScanPreviewAsync(SelectedDrive, ct);
+            ApplySizePercentages(RootNode);
+
+            StatusText = "Analizando en profundidad...";
             var progress = new Progress<(long BytesScanned, string CurrentPath)>(report =>
             {
                 StatusText = report.CurrentPath;
             });
 
-            RootNode = await _scanService.ScanAsync(SelectedDrive, progress, ct);
+            RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, ct);
             ApplySizePercentages(RootNode);
 
             stopwatch.Stop();
@@ -177,12 +183,20 @@ public partial class ScanViewModel : ObservableObject
 
     private static void ApplySizePercentages(DiskNode node, long totalBytes)
     {
+        if (node.IsPlaceholder)
+        {
+            return;
+        }
+
         node.SizePercent = Math.Clamp(node.SizeBytes * 100d / totalBytes, 0, 100);
         foreach (var child in node.Children)
         {
             ApplySizePercentages(child, totalBytes);
         }
     }
+
+    public Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(DiskNode node, CancellationToken ct)
+        => _scanService.LoadChildrenAsync(node.FullPath, ct);
 
     private void ApplyDisplayNodes()
     {

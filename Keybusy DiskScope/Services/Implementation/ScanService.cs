@@ -6,62 +6,174 @@ namespace Keybusy_DiskScope.Services.Implementation;
 public sealed class ScanService : IScanService
 {
     private readonly ILogger<ScanService> _logger;
+    private readonly int _maxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount);
 
     public ScanService(ILogger<ScanService> logger) => _logger = logger;
 
-    public async Task<DiskNode> ScanAsync(
+    public Task<DiskNode> ScanPreviewAsync(
+        string rootPath,
+        CancellationToken ct)
+    {
+        return Task.Run(() => BuildPreview(rootPath, ct), ct);
+    }
+
+    public Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(
+        string directoryPath,
+        CancellationToken ct)
+    {
+        return Task.Run(() => LoadChildren(directoryPath, ct), ct);
+    }
+
+    public Task<DiskNode> ScanFullAsync(
         string rootPath,
         IProgress<(long BytesScanned, string CurrentPath)>? progress,
         CancellationToken ct)
     {
-        return await Task.Run(() => ScanDirectory(rootPath, progress, ref _totalScanned, ct), ct);
+        _totalScanned = 0;
+        return Task.Run(() => ScanDirectoryParallel(rootPath, progress, ct), ct);
     }
 
     private long _totalScanned;
 
-    private DiskNode ScanDirectory(
+    private static EnumerationOptions CreateEnumerationOptions()
+        => new()
+        {
+            RecurseSubdirectories = false,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+
+    private DiskNode BuildPreview(string path, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var node = CreateDirectoryNode(path);
+        var options = CreateEnumerationOptions();
+
+        try
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (IsDirectory(entry))
+                {
+                    var child = CreateDirectoryNode(entry);
+                    child.HasChildren = DirectoryHasChildren(entry, options);
+                    if (child.HasChildren)
+                    {
+                        child.Children.Add(DiskNode.CreatePlaceholder());
+                    }
+
+                    node.Children.Add(child);
+                    node.FolderCount += 1;
+                }
+                else
+                {
+                    var fileNode = CreateFileNode(entry);
+                    node.Children.Add(fileNode);
+                    node.SizeBytes += fileNode.SizeBytes;
+                    node.FileCount += 1;
+                }
+            }
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Directory missing during preview: {Path}", path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Access denied during preview: {Path}", path);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "I/O error during preview: {Path}", path);
+        }
+
+        node.HasChildren = node.Children.Count > 0;
+        node.ChildrenLoaded = true;
+        SortChildren(node.Children);
+        return node;
+    }
+
+    private IReadOnlyList<DiskNode> LoadChildren(string path, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var options = CreateEnumerationOptions();
+        var results = new List<DiskNode>();
+
+        try
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (IsDirectory(entry))
+                {
+                    var child = CreateDirectoryNode(entry);
+                    child.HasChildren = DirectoryHasChildren(entry, options);
+                    if (child.HasChildren)
+                    {
+                        child.Children.Add(DiskNode.CreatePlaceholder());
+                    }
+
+                    results.Add(child);
+                }
+                else
+                {
+                    results.Add(CreateFileNode(entry));
+                }
+            }
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Directory missing enumerating children: {Path}", path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Access denied enumerating children: {Path}", path);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "I/O error enumerating children: {Path}", path);
+        }
+
+        SortChildren(results);
+        return results;
+    }
+
+    private DiskNode ScanDirectoryParallel(
         string path,
         IProgress<(long, string)>? progress,
-        ref long totalScanned,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        var dirInfo = new DirectoryInfo(path);
-        var node = new DiskNode
-        {
-            Name = dirInfo.Name,
-            FullPath = dirInfo.FullName,
-            IsDirectory = true,
-            LastModified = dirInfo.LastWriteTime
-        };
+        var node = CreateDirectoryNode(path);
+        var options = CreateEnumerationOptions();
+        var subDirs = new List<string>();
+        var fileNodes = new List<DiskNode>();
 
-        // Scan subdirectories
+        // Enumerate entries (non-recursive)
         try
         {
-            foreach (var sub in dirInfo.EnumerateDirectories())
+            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
             {
                 ct.ThrowIfCancellationRequested();
-                try
+
+                if (IsDirectory(entry))
                 {
-                    var child = ScanDirectory(sub.FullName, progress, ref totalScanned, ct);
-                    node.SizeBytes += child.SizeBytes;
-                    node.Children.Add(child);
-                    node.FolderCount += child.IsDirectory ? 1 : 0;
-                    node.FolderCount += child.FolderCount;
-                    node.FileCount += child.FileCount;
+                    subDirs.Add(entry);
                 }
-                catch (DirectoryNotFoundException ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Directory missing: {Path}", sub.FullName);
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    _logger.LogWarning(ex, "Access denied: {Path}", sub.FullName);
-                }
-                catch (IOException ex)
-                {
-                    _logger.LogWarning(ex, "I/O error scanning: {Path}", sub.FullName);
+                    var fileNode = CreateFileNode(entry);
+                    fileNodes.Add(fileNode);
+                    node.SizeBytes += fileNode.SizeBytes;
+                    node.FileCount += 1;
+
+                    Interlocked.Add(ref _totalScanned, fileNode.SizeBytes);
+                    progress?.Report((Interlocked.Read(ref _totalScanned), fileNode.FullPath));
                 }
             }
         }
@@ -78,55 +190,146 @@ public sealed class ScanService : IScanService
             _logger.LogWarning(ex, "I/O error enumerating directories: {Path}", path);
         }
 
-        // Scan files
-        try
+        var childNodes = new ConcurrentBag<DiskNode>();
+        var parallelOptions = new ParallelOptions
         {
-            foreach (var file in dirInfo.EnumerateFiles())
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = _maxDegreeOfParallelism
+        };
+
+        Parallel.ForEach(subDirs, parallelOptions, subPath =>
+        {
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                long size = 0;
-                try { size = file.Length; }
-                catch (IOException) { /* file in use or deleted */ }
-
-                var fileNode = new DiskNode
-                {
-                    Name = file.Name,
-                    FullPath = file.FullName,
-                    IsDirectory = false,
-                    SizeBytes = size,
-                    Extension = file.Extension.ToLowerInvariant(),
-                    LastModified = file.LastWriteTime,
-                    FileCount = 1
-                };
-
-                node.SizeBytes += size;
-                node.Children.Add(fileNode);
-                node.FileCount += 1;
-
-                Interlocked.Add(ref totalScanned, size);
-                progress?.Report((Interlocked.Read(ref totalScanned), file.FullName));
+                var child = ScanDirectoryParallel(subPath, progress, ct);
+                childNodes.Add(child);
             }
-        }
-        catch (DirectoryNotFoundException ex)
-        {
-            _logger.LogWarning(ex, "Directory missing enumerating files: {Path}", path);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogWarning(ex, "Access denied enumerating files: {Path}", path);
-        }
-        catch (IOException ex)
-        {
-            _logger.LogWarning(ex, "I/O error enumerating files: {Path}", path);
-        }
-
-        // Sort: directories first, then files, both alphabetically
-        node.Children.Sort((a, b) =>
-        {
-            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Access denied: {Path}", subPath);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Directory missing: {Path}", subPath);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "I/O error scanning: {Path}", subPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unexpected error scanning: {Path}", subPath);
+            }
         });
 
+        foreach (var fileNode in fileNodes)
+        {
+            node.Children.Add(fileNode);
+        }
+
+        foreach (var child in childNodes)
+        {
+            node.Children.Add(child);
+            node.SizeBytes += child.SizeBytes;
+            node.FileCount += child.FileCount;
+            node.FolderCount += 1 + child.FolderCount;
+        }
+
+        node.HasChildren = node.Children.Count > 0;
+        node.ChildrenLoaded = true;
+        SortChildren(node.Children);
+
         return node;
+    }
+
+    private static bool IsDirectory(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.Directory) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static DiskNode CreateDirectoryNode(string path)
+    {
+        var trimmed = path.TrimEnd(Path.DirectorySeparatorChar);
+        var name = Path.GetFileName(trimmed);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = trimmed;
+        }
+
+        var lastWrite = DateTime.MinValue;
+        try
+        {
+            lastWrite = Directory.GetLastWriteTime(path);
+        }
+        catch (Exception)
+        {
+            lastWrite = DateTime.MinValue;
+        }
+
+        return new DiskNode
+        {
+            Name = name,
+            FullPath = path,
+            IsDirectory = true,
+            LastModified = lastWrite
+        };
+    }
+
+    private static DiskNode CreateFileNode(string path)
+    {
+        var fileInfo = new FileInfo(path);
+        long size = 0;
+        DateTime lastWrite = DateTime.MinValue;
+        try { size = fileInfo.Length; }
+        catch (IOException) { /* file in use or deleted */ }
+        catch (UnauthorizedAccessException) { /* no access */ }
+        try { lastWrite = fileInfo.LastWriteTime; }
+        catch (Exception) { lastWrite = DateTime.MinValue; }
+
+        return new DiskNode
+        {
+            Name = fileInfo.Name,
+            FullPath = fileInfo.FullName,
+            IsDirectory = false,
+            SizeBytes = size,
+            Extension = fileInfo.Extension.ToLowerInvariant(),
+            LastModified = lastWrite,
+            FileCount = 1
+        };
+    }
+
+    private static bool DirectoryHasChildren(string path, EnumerationOptions options)
+    {
+        try
+        {
+            using var enumerator = Directory.EnumerateFileSystemEntries(path, "*", options).GetEnumerator();
+            return enumerator.MoveNext();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void SortChildren(IList<DiskNode> nodes)
+    {
+        var ordered = nodes
+            .OrderByDescending(n => n.IsDirectory)
+            .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        nodes.Clear();
+        foreach (var node in ordered)
+        {
+            nodes.Add(node);
+        }
     }
 }

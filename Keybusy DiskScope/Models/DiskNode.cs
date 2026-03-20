@@ -5,6 +5,8 @@ namespace Keybusy_DiskScope.Models;
 /// </summary>
 public sealed class DiskNode
 {
+    public bool IsPlaceholder { get; init; }
+    public bool IsNotPlaceholder => !IsPlaceholder;
     public string Name { get; init; } = string.Empty;
     public string FullPath { get; init; } = string.Empty;
     public bool IsDirectory { get; init; }
@@ -14,21 +16,31 @@ public sealed class DiskNode
     public int FileCount { get; set; }
     public int FolderCount { get; set; }
     public double SizePercent { get; set; }
+    public bool HasChildren { get; set; }
+    public bool ChildrenLoaded { get; set; }
 
     /// <summary>Child nodes (only populated for directories).</summary>
-    public List<DiskNode> Children { get; init; } = new();
+    public ObservableCollection<DiskNode> Children { get; } = new();
 
     /// <summary>Human-readable size string, e.g. "1.2 GB".</summary>
-    public string DisplaySize => FormatSize(SizeBytes);
+    public string DisplaySize => IsPlaceholder ? string.Empty : FormatSize(SizeBytes);
 
-    public string DisplayPercent => SizePercent <= 0 ? "0%" : $"{SizePercent:0}%";
+    public string DisplayPercent => IsPlaceholder ? string.Empty : SizePercent <= 0 ? "0%" : $"{SizePercent:0}%";
 
-    public string DisplayFileCount => FileCount.ToString("N0");
+    public string DisplayFileCount => IsPlaceholder ? string.Empty : FileCount.ToString("N0");
 
-    public string DisplayLastModified => LastModified.ToString("g");
+    public string DisplayLastModified => IsPlaceholder ? string.Empty : LastModified.ToString("g");
 
     /// <summary>Icon glyph for the node type (Segoe Fluent Icons).</summary>
     public string IconGlyph => IsDirectory ? "\uE8B7" : "\uE8A5"; // Folder / Document
+
+    public static DiskNode CreatePlaceholder()
+        => new()
+        {
+            IsPlaceholder = true,
+            Name = "Cargando...",
+            IsDirectory = false
+        };
 
     public static string FormatSize(long bytes)
     {

@@ -24,54 +24,90 @@ public sealed class DriveInfoService : IDriveInfoService
     private DriveInfoResult GetDrivesInternal(CancellationToken ct)
     {
         var diagnostics = new List<string>();
-        var physicalDisks = GetPhysicalDisks(diagnostics);
-        var driveToDiskNumber = GetDriveToDiskNumberMap(diagnostics);
-
-        var drives = new List<DriveInfoData>();
-        foreach (var drive in DriveInfo.GetDrives())
+        try
         {
-            ct.ThrowIfCancellationRequested();
+            var physicalDisks = GetPhysicalDisks(diagnostics);
+            var driveToDiskNumber = GetDriveToDiskNumberMap(diagnostics);
 
-            if (!drive.IsReady)
+            var drives = new List<DriveInfoData>();
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                continue;
+                ct.ThrowIfCancellationRequested();
+
+                if (!drive.IsReady)
+                {
+                    continue;
+                }
+
+                var root = drive.RootDirectory.FullName;
+                var letter = root.TrimEnd('\\');
+                int? diskNumber = driveToDiskNumber.TryGetValue(letter, out var number) ? number : null;
+
+                PhysicalDiskInfo? physical = null;
+                if (diskNumber.HasValue && physicalDisks.TryGetValue(diskNumber.Value, out var info))
+                {
+                    physical = info;
+                }
+
+                var usedBytes = drive.TotalSize - drive.TotalFreeSpace;
+                drives.Add(new DriveInfoData
+                {
+                    Name = drive.Name,
+                    RootPath = root,
+                    VolumeLabel = drive.VolumeLabel ?? string.Empty,
+                    FileSystem = drive.DriveFormat ?? string.Empty,
+                    DriveType = drive.DriveType,
+                    TotalBytes = drive.TotalSize,
+                    FreeBytes = drive.TotalFreeSpace,
+                    UsedBytes = usedBytes,
+                    Model = physical?.Model,
+                    MediaType = physical?.MediaType,
+                    TemperatureC = physical?.TemperatureC,
+                    HealthStatus = physical?.HealthStatus
+                });
+
+                diagnostics.Add($"Unidad {drive.Name} -> Disco {diskNumber?.ToString() ?? "N/D"}; Media={physical?.MediaType ?? "N/D"}; Temp={(physical?.TemperatureC.HasValue == true ? physical.TemperatureC.Value.ToString("0") + "C" : "N/D")}; Salud={physical?.HealthStatus ?? "N/D"}");
             }
 
-            var root = drive.RootDirectory.FullName;
-            var letter = root.TrimEnd('\\');
-            int? diskNumber = driveToDiskNumber.TryGetValue(letter, out var number) ? number : null;
-
-            PhysicalDiskInfo? physical = null;
-            if (diskNumber.HasValue && physicalDisks.TryGetValue(diskNumber.Value, out var info))
+            return new DriveInfoResult
             {
-                physical = info;
-            }
-
-            var usedBytes = drive.TotalSize - drive.TotalFreeSpace;
-            drives.Add(new DriveInfoData
-            {
-                Name = drive.Name,
-                RootPath = root,
-                VolumeLabel = drive.VolumeLabel ?? string.Empty,
-                FileSystem = drive.DriveFormat ?? string.Empty,
-                DriveType = drive.DriveType,
-                TotalBytes = drive.TotalSize,
-                FreeBytes = drive.TotalFreeSpace,
-                UsedBytes = usedBytes,
-                Model = physical?.Model,
-                MediaType = physical?.MediaType,
-                TemperatureC = physical?.TemperatureC,
-                HealthStatus = physical?.HealthStatus
-            });
-
-            diagnostics.Add($"Unidad {drive.Name} -> Disco {diskNumber?.ToString() ?? "N/D"}; Media={physical?.MediaType ?? "N/D"}; Temp={(physical?.TemperatureC.HasValue == true ? physical.TemperatureC.Value.ToString("0") + "C" : "N/D")}; Salud={physical?.HealthStatus ?? "N/D"}");
+                Drives = drives,
+                Diagnostics = diagnostics
+            };
         }
-
-        return new DriveInfoResult
+        catch (Exception ex)
         {
-            Drives = drives,
-            Diagnostics = diagnostics
-        };
+            _logger.LogWarning(ex, "Drive discovery failed; falling back to basic drive info.");
+            diagnostics.Add($"Fallback: fallo en deteccion avanzada ({DescribeException(ex)})");
+
+            var drives = new List<DriveInfoData>();
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (!drive.IsReady)
+                {
+                    continue;
+                }
+
+                var usedBytes = drive.TotalSize - drive.TotalFreeSpace;
+                drives.Add(new DriveInfoData
+                {
+                    Name = drive.Name,
+                    RootPath = drive.RootDirectory.FullName,
+                    VolumeLabel = drive.VolumeLabel ?? string.Empty,
+                    FileSystem = drive.DriveFormat ?? string.Empty,
+                    DriveType = drive.DriveType,
+                    TotalBytes = drive.TotalSize,
+                    FreeBytes = drive.TotalFreeSpace,
+                    UsedBytes = usedBytes
+                });
+            }
+
+            return new DriveInfoResult
+            {
+                Drives = drives,
+                Diagnostics = diagnostics
+            };
+        }
     }
 
     private Dictionary<int, PhysicalDiskInfo> GetPhysicalDisks(List<string> diagnostics)
@@ -279,9 +315,9 @@ public sealed class DriveInfoService : IDriveInfoService
             };
         }
 
-        if (operationalValue is ushort[] operationalStatuses && operationalStatuses.Length > 0)
+        if (TryGetFirstStatusCode(operationalValue, out var statusCode))
         {
-            return operationalStatuses[0] switch
+            return statusCode switch
             {
                 2 => "Bueno",
                 3 => "Advertencia",
@@ -339,23 +375,30 @@ public sealed class DriveInfoService : IDriveInfoService
             {
                 foreach (ManagementObject status in statuses)
                 {
-                    var instance = GetPropertyValue(status, "InstanceName")?.ToString();
-                    if (!TryGetDiskNumberFromInstance(instance, out var diskNumber))
+                    try
                     {
-                        continue;
+                        var instance = GetPropertyValue(status, "InstanceName")?.ToString();
+                        if (!TryGetDiskNumberFromInstance(instance, out var diskNumber))
+                        {
+                            continue;
+                        }
+
+                        var predictFailure = SafeBool(GetPropertyValue(status, "PredictFailure"));
+                        var health = predictFailure ? "Crítico" : "Bueno";
+
+                        if (!result.TryGetValue(diskNumber, out var info))
+                        {
+                            info = new SmartInfo();
+                            result[diskNumber] = info;
+                        }
+
+                        info.HealthStatus = health;
+                        diagnostics.Add($"SMART Salud Disco {diskNumber}: {health}");
                     }
-
-                    var predictFailure = GetPropertyValue(status, "PredictFailure") is bool b && b;
-                    var health = predictFailure ? "Crítico" : "Bueno";
-
-                    if (!result.TryGetValue(diskNumber, out var info))
+                    catch (Exception ex)
                     {
-                        info = new SmartInfo();
-                        result[diskNumber] = info;
+                        diagnostics.Add($"SMART Salud: fallo por item ({DescribeException(ex)})");
                     }
-
-                    info.HealthStatus = health;
-                    diagnostics.Add($"SMART Salud Disco {diskNumber}: {health}");
                 }
             }
 
@@ -365,21 +408,28 @@ public sealed class DriveInfoService : IDriveInfoService
             {
                 foreach (ManagementObject temp in temps)
                 {
-                    var instance = GetPropertyValue(temp, "InstanceName")?.ToString();
-                    if (!TryGetDiskNumberFromInstance(instance, out var diskNumber))
+                    try
                     {
-                        continue;
-                    }
+                        var instance = GetPropertyValue(temp, "InstanceName")?.ToString();
+                        if (!TryGetDiskNumberFromInstance(instance, out var diskNumber))
+                        {
+                            continue;
+                        }
 
-                    var temperature = MapTemperature(GetPropertyValue(temp, "CurrentTemperature"));
-                    if (!result.TryGetValue(diskNumber, out var info))
+                        var temperature = MapTemperature(GetPropertyValue(temp, "CurrentTemperature"));
+                        if (!result.TryGetValue(diskNumber, out var info))
+                        {
+                            info = new SmartInfo();
+                            result[diskNumber] = info;
+                        }
+
+                        info.TemperatureC = temperature;
+                        diagnostics.Add($"SMART Temp Disco {diskNumber}: {(temperature.HasValue ? temperature.Value.ToString("0") + "C" : "N/D")}");
+                    }
+                    catch (Exception ex)
                     {
-                        info = new SmartInfo();
-                        result[diskNumber] = info;
+                        diagnostics.Add($"SMART Temp: fallo por item ({DescribeException(ex)})");
                     }
-
-                    info.TemperatureC = temperature;
-                    diagnostics.Add($"SMART Temp Disco {diskNumber}: {(temperature.HasValue ? temperature.Value.ToString("0") + "C" : "N/D")}");
                 }
             }
         }
@@ -726,7 +776,71 @@ public sealed class DriveInfoService : IDriveInfoService
 
     private static object? GetPropertyValue(ManagementBaseObject source, string name)
     {
-        return source.Properties[name]?.Value;
+        try
+        {
+            return source.Properties[name]?.Value;
+        }
+        catch (InvalidCastException)
+        {
+            return null;
+        }
+        catch (ManagementException)
+        {
+            return null;
+        }
+    }
+
+    private static bool SafeBool(object? value)
+    {
+        if (value is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return Convert.ToBoolean(value);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (InvalidCastException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetFirstStatusCode(object? value, out int statusCode)
+    {
+        statusCode = 0;
+        if (value is null)
+        {
+            return false;
+        }
+
+        if (value is Array array && array.Length > 0)
+        {
+            try
+            {
+                statusCode = Convert.ToInt32(array.GetValue(0));
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            statusCode = Convert.ToInt32(value);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static bool TryGetWmiKeyValue(string? path, string key, out string value)
