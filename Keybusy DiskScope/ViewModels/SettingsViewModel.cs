@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 
 namespace Keybusy_DiskScope.ViewModels;
@@ -5,6 +6,7 @@ namespace Keybusy_DiskScope.ViewModels;
 public sealed class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
+    private static readonly string[] ThemeOptions = { "Sistema", "Claro", "Oscuro" };
 
     public SettingsViewModel(ISettingsService settingsService)
     {
@@ -30,11 +32,38 @@ public sealed class SettingsViewModel : ObservableObject
         }
     }
 
+    public IReadOnlyList<string> ThemeOptionLabels => ThemeOptions;
+
+    public int SelectedThemeIndex
+    {
+        get => (int)_settingsService.AppThemePreference;
+        set
+        {
+            if (value == (int)_settingsService.AppThemePreference)
+            {
+                return;
+            }
+
+            if (value < 0 || value >= ThemeOptions.Length)
+            {
+                return;
+            }
+
+            _settingsService.AppThemePreference = (Models.AppThemePreference)value;
+            OnPropertyChanged();
+        }
+    }
+
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.Equals(e.PropertyName, nameof(ISettingsService.UseColoredFolderIcons), StringComparison.Ordinal))
         {
             OnPropertyChanged(nameof(UseColoredFolderIcons));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.AppThemePreference), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(SelectedThemeIndex));
         }
     }
 }

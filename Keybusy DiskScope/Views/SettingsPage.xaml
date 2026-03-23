@@ -42,6 +42,20 @@
                                Text="Activa un color distintivo para las carpetas en la vista de analisis."
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="Tema de la aplicacion"
+                               FontWeight="SemiBold" />
+                    <ComboBox Grid.Column="1"
+                              Width="180"
+                              ItemsSource="{x:Bind ViewModel.ThemeOptionLabels}"
+                              SelectedIndex="{x:Bind ViewModel.SelectedThemeIndex, Mode=TwoWay}"
+                              AutomationProperties.Name="Seleccionar tema de la aplicacion" />
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Text="Elige entre claro, oscuro o seguir el tema del sistema."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
             </StackPanel>
         </Border>
     </Grid>
