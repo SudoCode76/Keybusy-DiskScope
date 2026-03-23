@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Text;
 using Keybusy_DiskScope.Data;
 using Keybusy_DiskScope.Services.Implementation;
 using Keybusy_DiskScope.ViewModels;
@@ -15,9 +17,13 @@ public partial class App : Application
 
     public Window? MainWindow { get; private set; }
 
+    private readonly string _appDataFolder;
+    private readonly ILogger<App>? _appLogger;
+
     public App()
     {
         InitializeComponent();
+        UnhandledException += OnUnhandledException;
 
         var services = new ServiceCollection();
 
@@ -29,17 +35,18 @@ public partial class App : Application
         });
 
         // EF Core — SQLite, stored in LocalApplicationData
-        var dbFolder = Path.Combine(
+        _appDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "KeybusyDiskScope");
-        Directory.CreateDirectory(dbFolder);
-        var dbPath = Path.Combine(dbFolder, "diskscope.db");
+        Directory.CreateDirectory(_appDataFolder);
+        var dbPath = Path.Combine(_appDataFolder, "diskscope.db");
 
         services.AddDbContextFactory<AppDbContext>(options =>
             options.UseSqlite($"Data Source={dbPath}"));
 
         // Domain services
         services.AddSingleton<IDriveInfoService, DriveInfoService>();
+        services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IScanService, ScanService>();
         services.AddSingleton<ISnapshotService, SnapshotService>();
         services.AddSingleton<IDiffService, DiffService>();
@@ -50,8 +57,10 @@ public partial class App : Application
         services.AddTransient<ScanViewModel>();
         services.AddTransient<SnapshotsViewModel>();
         services.AddTransient<CompareViewModel>();
+        services.AddTransient<SettingsViewModel>();
 
         Services = services.BuildServiceProvider();
+        _appLogger = Services.GetService<ILogger<App>>();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -65,8 +74,34 @@ public partial class App : Application
             db.Database.EnsureCreated();
         }
 
+        _ = Services.GetRequiredService<ISettingsService>();
+
         MainWindow = new MainWindow();
         MainWindow.Activate();
     }
 
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        try
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine($"[{DateTime.Now:O}] Unhandled exception");
+            builder.AppendLine($"Message: {e.Message}");
+            if (e.Exception is not null)
+            {
+                builder.AppendLine(e.Exception.ToString());
+            }
+
+            builder.AppendLine(new string('-', 60));
+
+            var logPath = Path.Combine(_appDataFolder, "crash.log");
+            File.AppendAllText(logPath, builder.ToString());
+        }
+        catch
+        {
+            // Ignorar fallos al escribir el log
+        }
+
+        _appLogger?.LogError(e.Exception, "Unhandled exception: {Message}", e.Message);
+    }
 }

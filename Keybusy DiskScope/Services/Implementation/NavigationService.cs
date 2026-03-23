@@ -13,7 +13,8 @@ public sealed class NavigationService : INavigationService
         { "HomePage", typeof(Views.HomePage) },
         { "ScanPage", typeof(Views.ScanPage) },
         { "SnapshotsPage", typeof(Views.SnapshotsPage) },
-        { "ComparePage", typeof(Views.ComparePage) }
+        { "ComparePage", typeof(Views.ComparePage) },
+        { "SettingsPage", typeof(Views.SettingsPage) }
     };
 
     private Frame? _frame;

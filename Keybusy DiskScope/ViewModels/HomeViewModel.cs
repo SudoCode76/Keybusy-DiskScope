@@ -147,10 +147,36 @@ public partial class HomeViewModel : ObservableObject
     {
         if (drive is null)
         {
+            DriveDiagnostics.Add("No se pudo iniciar el analisis: unidad no valida.");
             return Task.CompletedTask;
         }
 
-        _navigationService.NavigateTo("ScanPage", drive.RootPath);
+        if (string.IsNullOrWhiteSpace(drive.RootPath))
+        {
+            DriveDiagnostics.Add("No se pudo iniciar el analisis: ruta de unidad vacia.");
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            _navigationService.NavigateTo("ScanPage", drive.RootPath);
+        }
+        catch (ArgumentException ex)
+        {
+            DriveDiagnostics.Add($"Navegacion invalida: {ex.Message}");
+            _logger.LogError(ex, "Navigation arg error for {Drive}", drive.RootPath);
+        }
+        catch (InvalidOperationException ex)
+        {
+            DriveDiagnostics.Add($"NavigationService sin marco: {ex.Message}");
+            _logger.LogError(ex, "Navigation service not ready for {Drive}", drive.RootPath);
+        }
+        catch (Exception ex)
+        {
+            DriveDiagnostics.Add($"No se pudo abrir ScanPage: {ex.Message}");
+            _logger.LogError(ex, "Unexpected navigation failure for {Drive}", drive.RootPath);
+        }
+
         return Task.CompletedTask;
     }
 }

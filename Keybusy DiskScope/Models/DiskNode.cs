@@ -7,6 +7,7 @@ public sealed class DiskNode
 {
     public bool IsPlaceholder { get; init; }
     public bool IsNotPlaceholder => !IsPlaceholder;
+    public bool IsFile => !IsDirectory;
     public string Name { get; init; } = string.Empty;
     public string FullPath { get; init; } = string.Empty;
     public bool IsDirectory { get; init; }
@@ -18,6 +19,10 @@ public sealed class DiskNode
     public double SizePercent { get; set; }
     public bool HasChildren { get; set; }
     public bool ChildrenLoaded { get; set; }
+    public int Depth { get; set; }
+    public bool IsExpanded { get; set; }
+
+    public string ExpandGlyph => IsExpanded ? "\uE70D" : "\uE76C";
 
     /// <summary>Child nodes (only populated for directories).</summary>
     public ObservableCollection<DiskNode> Children { get; } = new();
@@ -34,12 +39,13 @@ public sealed class DiskNode
     /// <summary>Icon glyph for the node type (Segoe Fluent Icons).</summary>
     public string IconGlyph => IsDirectory ? "\uE8B7" : "\uE8A5"; // Folder / Document
 
-    public static DiskNode CreatePlaceholder()
+    public static DiskNode CreatePlaceholder(int depth = 0)
         => new()
         {
             IsPlaceholder = true,
             Name = "Cargando...",
-            IsDirectory = false
+            IsDirectory = false,
+            Depth = depth
         };
 
     public static string FormatSize(long bytes)

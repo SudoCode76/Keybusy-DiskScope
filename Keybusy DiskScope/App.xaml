@@ -20,7 +20,9 @@
 
             <converters:BoolNegationConverter x:Key="BoolNegationConverter" />
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+            <converters:BoolToGridLengthConverter x:Key="BoolToGridLengthConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+            <converters:DepthToThicknessConverter x:Key="DepthToThicknessConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

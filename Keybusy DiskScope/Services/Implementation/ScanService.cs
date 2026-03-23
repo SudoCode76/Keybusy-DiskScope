@@ -14,7 +14,7 @@ public sealed class ScanService : IScanService
         string rootPath,
         CancellationToken ct)
     {
-        return Task.Run(() => BuildPreview(rootPath, ct), ct);
+        return Task.Run(() => BuildPreview(rootPath, ct, 0), ct);
     }
 
     public Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(
@@ -30,7 +30,7 @@ public sealed class ScanService : IScanService
         CancellationToken ct)
     {
         _totalScanned = 0;
-        return Task.Run(() => ScanDirectoryParallel(rootPath, progress, ct), ct);
+        return Task.Run(() => ScanDirectoryParallel(rootPath, progress, ct, 0), ct);
     }
 
     private long _totalScanned;
@@ -43,11 +43,11 @@ public sealed class ScanService : IScanService
             AttributesToSkip = FileAttributes.ReparsePoint
         };
 
-    private DiskNode BuildPreview(string path, CancellationToken ct)
+    private DiskNode BuildPreview(string path, CancellationToken ct, int depth)
     {
         ct.ThrowIfCancellationRequested();
 
-        var node = CreateDirectoryNode(path);
+        var node = CreateDirectoryNode(path, depth);
         var options = CreateEnumerationOptions();
 
         try
@@ -58,19 +58,14 @@ public sealed class ScanService : IScanService
 
                 if (IsDirectory(entry))
                 {
-                    var child = CreateDirectoryNode(entry);
+                    var child = CreateDirectoryNode(entry, depth + 1);
                     child.HasChildren = DirectoryHasChildren(entry, options);
-                    if (child.HasChildren)
-                    {
-                        child.Children.Add(DiskNode.CreatePlaceholder());
-                    }
-
                     node.Children.Add(child);
                     node.FolderCount += 1;
                 }
                 else
                 {
-                    var fileNode = CreateFileNode(entry);
+                    var fileNode = CreateFileNode(entry, depth + 1);
                     node.Children.Add(fileNode);
                     node.SizeBytes += fileNode.SizeBytes;
                     node.FileCount += 1;
@@ -110,18 +105,13 @@ public sealed class ScanService : IScanService
 
                 if (IsDirectory(entry))
                 {
-                    var child = CreateDirectoryNode(entry);
+                    var child = CreateDirectoryNode(entry, 0);
                     child.HasChildren = DirectoryHasChildren(entry, options);
-                    if (child.HasChildren)
-                    {
-                        child.Children.Add(DiskNode.CreatePlaceholder());
-                    }
-
                     results.Add(child);
                 }
                 else
                 {
-                    results.Add(CreateFileNode(entry));
+                    results.Add(CreateFileNode(entry, 0));
                 }
             }
         }
@@ -145,11 +135,12 @@ public sealed class ScanService : IScanService
     private DiskNode ScanDirectoryParallel(
         string path,
         IProgress<(long, string)>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        int depth)
     {
         ct.ThrowIfCancellationRequested();
 
-        var node = CreateDirectoryNode(path);
+        var node = CreateDirectoryNode(path, depth);
         var options = CreateEnumerationOptions();
         var subDirs = new List<string>();
         var fileNodes = new List<DiskNode>();
@@ -167,7 +158,7 @@ public sealed class ScanService : IScanService
                 }
                 else
                 {
-                    var fileNode = CreateFileNode(entry);
+                    var fileNode = CreateFileNode(entry, depth + 1);
                     fileNodes.Add(fileNode);
                     node.SizeBytes += fileNode.SizeBytes;
                     node.FileCount += 1;
@@ -201,7 +192,7 @@ public sealed class ScanService : IScanService
         {
             try
             {
-                var child = ScanDirectoryParallel(subPath, progress, ct);
+                var child = ScanDirectoryParallel(subPath, progress, ct, depth + 1);
                 childNodes.Add(child);
             }
             catch (UnauthorizedAccessException ex)
@@ -255,7 +246,7 @@ public sealed class ScanService : IScanService
         }
     }
 
-    private static DiskNode CreateDirectoryNode(string path)
+    private static DiskNode CreateDirectoryNode(string path, int depth)
     {
         var trimmed = path.TrimEnd(Path.DirectorySeparatorChar);
         var name = Path.GetFileName(trimmed);
@@ -279,11 +270,12 @@ public sealed class ScanService : IScanService
             Name = name,
             FullPath = path,
             IsDirectory = true,
-            LastModified = lastWrite
+            LastModified = lastWrite,
+            Depth = depth
         };
     }
 
-    private static DiskNode CreateFileNode(string path)
+    private static DiskNode CreateFileNode(string path, int depth)
     {
         var fileInfo = new FileInfo(path);
         long size = 0;
@@ -302,7 +294,8 @@ public sealed class ScanService : IScanService
             SizeBytes = size,
             Extension = fileInfo.Extension.ToLowerInvariant(),
             LastModified = lastWrite,
-            FileCount = 1
+            FileCount = 1,
+            Depth = depth
         };
     }
 

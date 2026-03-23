@@ -1,4 +1,3 @@
-using Keybusy_DiskScope.Models;
 using Keybusy_DiskScope.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -36,58 +35,4 @@ public sealed partial class ScanPage : Page
         }
     }
 
-    private void ExpandAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var node in ScanTree.RootNodes)
-        {
-            SetExpanded(node, true);
-        }
-    }
-
-    private void CollapseAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var node in ScanTree.RootNodes)
-        {
-            SetExpanded(node, false);
-        }
-    }
-
-    private static void SetExpanded(TreeViewNode node, bool expanded)
-    {
-        node.IsExpanded = expanded;
-        foreach (var child in node.Children)
-        {
-            SetExpanded(child, expanded);
-        }
-    }
-
-    private async void ScanTree_Expanding(TreeView sender, TreeViewExpandingEventArgs args)
-    {
-        if (args.Node?.Content is not DiskNode node)
-        {
-            return;
-        }
-
-        if (!node.IsDirectory || node.ChildrenLoaded)
-        {
-            return;
-        }
-
-        try
-        {
-            var children = await ViewModel.LoadChildrenAsync(node, CancellationToken.None);
-            node.Children.Clear();
-            foreach (var child in children)
-            {
-                node.Children.Add(child);
-            }
-
-            node.ChildrenLoaded = true;
-            node.HasChildren = node.Children.Count > 0;
-        }
-        catch (Exception ex)
-        {
-            ViewModel.ErrorMessage = ex.Message;
-        }
-    }
 }

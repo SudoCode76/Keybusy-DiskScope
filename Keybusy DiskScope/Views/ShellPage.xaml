@@ -43,13 +43,22 @@
         <NavigationView
             Grid.Row="1"
             x:Name="NavView"
-            IsBackButtonVisible="Visible"
+            IsBackButtonVisible="Collapsed"
             IsBackEnabled="{x:Bind ContentFrame.CanGoBack, Mode=OneTime}"
             BackRequested="NavView_BackRequested"
             ItemInvoked="NavView_ItemInvoked"
             Loaded="NavView_Loaded"
+            OpenPaneLength="210"
+            CompactPaneLength="48"
             PaneDisplayMode="Auto"
             Background="Transparent">
+
+            <NavigationView.MenuItemContainerStyle>
+                <Style TargetType="NavigationViewItem">
+                    <Setter Property="MinHeight" Value="36" />
+                    <Setter Property="Padding" Value="12,6" />
+                </Style>
+            </NavigationView.MenuItemContainerStyle>
 
             <NavigationView.MenuItems>
                 <NavigationViewItem
@@ -79,6 +88,17 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    Content="Configuracion"
+                    Tag="SettingsPage"
+                    AutomationProperties.Name="Configuracion">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
 
             <NavigationView.Content>
                 <Grid>

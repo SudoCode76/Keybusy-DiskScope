@@ -13,6 +13,7 @@ public sealed partial class ShellPage : Page
         { "ScanPage",      typeof(ScanPage) },
         { "SnapshotsPage", typeof(SnapshotsPage) },
         { "ComparePage",   typeof(ComparePage) },
+        { "SettingsPage",  typeof(SettingsPage) }
     };
 
     public ShellPage()
@@ -54,8 +55,11 @@ public sealed partial class ShellPage : Page
         var pageType = e.SourcePageType;
         var tag = _pages.FirstOrDefault(p => p.Value == pageType).Key;
 
-        var allItems = NavView.MenuItems
+        var menuItems = NavView.MenuItems
             .OfType<NavigationViewItem>();
+        var footerItems = NavView.FooterMenuItems
+            .OfType<NavigationViewItem>();
+        var allItems = menuItems.Concat(footerItems);
 
         NavView.SelectedItem = allItems.FirstOrDefault(i => i.Tag?.ToString() == tag);
     }

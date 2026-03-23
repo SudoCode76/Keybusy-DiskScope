@@ -24,8 +24,13 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string _rootDisplaySize = string.Empty;
     [ObservableProperty] private string _rootDisplayLabel = string.Empty;
     [ObservableProperty] private int _selectedSortIndex;
+    [ObservableProperty] private bool _sortDescending;
     [ObservableProperty] private bool? _filterDirectoriesOnly;
     [ObservableProperty] private bool? _filterLargeOnly;
+    [ObservableProperty] private bool _showSizeColumn = true;
+    [ObservableProperty] private bool _showPercentColumn = true;
+    [ObservableProperty] private bool _showFilesColumn = true;
+    [ObservableProperty] private bool _showModifiedColumn = true;
 
     public bool HasError => ErrorMessage is not null;
 
@@ -50,6 +55,7 @@ public partial class ScanViewModel : ObservableObject
         _logger = logger;
 
         StatusText = "Seleccione una unidad y pulse Escanear.";
+        SortDescending = true;
     }
 
     public void LoadDrives()
@@ -160,7 +166,17 @@ public partial class ScanViewModel : ObservableObject
     }
 
     partial void OnSelectedSortIndexChanged(int value)
-        => ApplyDisplayNodes();
+    {
+        SortDescending = true;
+        ApplyDisplayNodes();
+        NotifySortIndicators();
+    }
+
+    partial void OnSortDescendingChanged(bool value)
+    {
+        ApplyDisplayNodes();
+        NotifySortIndicators();
+    }
 
     partial void OnFilterDirectoriesOnlyChanged(bool? value)
         => ApplyDisplayNodes();
@@ -195,8 +211,105 @@ public partial class ScanViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private void SortBy(int columnIndex)
+    {
+        if (SelectedSortIndex == columnIndex)
+        {
+            SortDescending = !SortDescending;
+            return;
+        }
+
+        SelectedSortIndex = columnIndex;
+        SortDescending = true;
+    }
+
+    public bool IsNameSort => SelectedSortIndex == 0;
+    public bool IsSizeSort => SelectedSortIndex == 1;
+    public bool IsPercentSort => SelectedSortIndex == 2;
+    public bool IsFilesSort => SelectedSortIndex == 3;
+    public bool IsModifiedSort => SelectedSortIndex == 4;
+
+    public int NameSortIndex => 0;
+    public int SizeSortIndex => 1;
+    public int PercentSortIndex => 2;
+    public int FilesSortIndex => 3;
+    public int ModifiedSortIndex => 4;
+
+    public string NameSortGlyph => IsNameSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
+    public string SizeSortGlyph => IsSizeSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
+    public string PercentSortGlyph => IsPercentSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
+    public string FilesSortGlyph => IsFilesSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
+    public string ModifiedSortGlyph => IsModifiedSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
+
+    private void NotifySortIndicators()
+    {
+        OnPropertyChanged(nameof(IsNameSort));
+        OnPropertyChanged(nameof(IsSizeSort));
+        OnPropertyChanged(nameof(IsPercentSort));
+        OnPropertyChanged(nameof(IsFilesSort));
+        OnPropertyChanged(nameof(IsModifiedSort));
+        OnPropertyChanged(nameof(NameSortGlyph));
+        OnPropertyChanged(nameof(SizeSortGlyph));
+        OnPropertyChanged(nameof(PercentSortGlyph));
+        OnPropertyChanged(nameof(FilesSortGlyph));
+        OnPropertyChanged(nameof(ModifiedSortGlyph));
+    }
+
     public Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(DiskNode node, CancellationToken ct)
-        => _scanService.LoadChildrenAsync(node.FullPath, ct);
+        => LoadAndSortChildrenAsync(node, ct);
+
+    private async Task<IReadOnlyList<DiskNode>> LoadAndSortChildrenAsync(DiskNode node, CancellationToken ct)
+    {
+        var children = await _scanService.LoadChildrenAsync(node.FullPath, ct);
+        var depth = node.Depth + 1;
+        foreach (var child in children)
+        {
+            ApplyDepth(child, depth);
+        }
+        return FilterAndSortNodes(children).ToList();
+    }
+
+    private static void ApplyDepth(DiskNode node, int depth)
+    {
+        node.Depth = depth;
+        foreach (var child in node.Children)
+        {
+            ApplyDepth(child, depth + 1);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ToggleExpandAsync(DiskNode? node)
+    {
+        if (node is null || !node.IsDirectory)
+        {
+            return;
+        }
+
+        node.IsExpanded = !node.IsExpanded;
+        if (node.IsExpanded && !node.ChildrenLoaded)
+        {
+            try
+            {
+                var children = await LoadChildrenAsync(node, CancellationToken.None);
+                node.Children.Clear();
+                foreach (var child in children)
+                {
+                    node.Children.Add(child);
+                }
+
+                node.ChildrenLoaded = true;
+                node.HasChildren = node.Children.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = ex.Message;
+            }
+        }
+
+        ApplyDisplayNodes();
+    }
 
     private void ApplyDisplayNodes()
     {
@@ -211,35 +324,81 @@ public partial class ScanViewModel : ObservableObject
             return;
         }
 
-        IEnumerable<DiskNode> nodes = RootNode.Children;
-
-        if (FilterDirectoriesOnly == true)
-        {
-            nodes = nodes.Where(n => n.IsDirectory);
-        }
-
-        if (FilterLargeOnly == true)
-        {
-            nodes = nodes.Where(n => n.SizeBytes >= 1_073_741_824);
-        }
-
-        nodes = SelectedSortIndex switch
-        {
-            1 => nodes.OrderByDescending(n => n.SizeBytes),
-            2 => nodes.OrderByDescending(n => n.SizePercent),
-            3 => nodes.OrderByDescending(n => n.FileCount),
-            4 => nodes.OrderByDescending(n => n.LastModified),
-            _ => nodes.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
-        };
-
+        var nodes = FilterAndSortNodes(RootNode.Children).ToList();
         foreach (var node in nodes)
         {
-            DisplayNodes.Add(node);
+            AddFlattenedNode(node);
         }
 
         HasResults = DisplayNodes.Count > 0;
         ResultsSummary = $"{DisplayNodes.Count:N0} elementos mostrados";
         RootDisplaySize = RootNode.DisplaySize;
         RootDisplayLabel = $"Espacio total analizado: {RootDisplaySize}";
+
+        SortLoadedChildren(RootNode);
+    }
+
+    private void AddFlattenedNode(DiskNode node)
+    {
+        DisplayNodes.Add(node);
+        if (!node.IsDirectory || !node.IsExpanded || !node.ChildrenLoaded)
+        {
+            return;
+        }
+
+        var children = FilterAndSortNodes(node.Children).ToList();
+        foreach (var child in children)
+        {
+            AddFlattenedNode(child);
+        }
+    }
+
+    private IEnumerable<DiskNode> FilterAndSortNodes(IEnumerable<DiskNode> nodes)
+    {
+        IEnumerable<DiskNode> filtered = nodes;
+
+        if (FilterDirectoriesOnly == true)
+        {
+            filtered = filtered.Where(n => n.IsDirectory);
+        }
+
+        if (FilterLargeOnly == true)
+        {
+            filtered = filtered.Where(n => n.SizeBytes >= 1_073_741_824);
+        }
+
+        return SortNodes(filtered);
+    }
+
+    private IEnumerable<DiskNode> SortNodes(IEnumerable<DiskNode> nodes)
+    {
+        return SelectedSortIndex switch
+        {
+            1 => SortDescending ? nodes.OrderByDescending(n => n.SizeBytes) : nodes.OrderBy(n => n.SizeBytes),
+            2 => SortDescending ? nodes.OrderByDescending(n => n.SizePercent) : nodes.OrderBy(n => n.SizePercent),
+            3 => SortDescending ? nodes.OrderByDescending(n => n.FileCount) : nodes.OrderBy(n => n.FileCount),
+            4 => SortDescending ? nodes.OrderByDescending(n => n.LastModified) : nodes.OrderBy(n => n.LastModified),
+            _ => SortDescending
+                ? nodes.OrderByDescending(n => n.Name, StringComparer.OrdinalIgnoreCase)
+                : nodes.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private void SortLoadedChildren(DiskNode node)
+    {
+        if (node.ChildrenLoaded && node.Children.Count > 0)
+        {
+            var sorted = SortNodes(node.Children).ToList();
+            node.Children.Clear();
+            foreach (var child in sorted)
+            {
+                node.Children.Add(child);
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            SortLoadedChildren(child);
+        }
     }
 }
