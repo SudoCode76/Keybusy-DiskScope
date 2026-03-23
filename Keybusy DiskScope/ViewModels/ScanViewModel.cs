@@ -9,6 +9,7 @@ public partial class ScanViewModel : ObservableObject
     private readonly IScanService _scanService;
     private readonly ISnapshotService _snapshotService;
     private readonly ILogger<ScanViewModel> _logger;
+    private CancellationTokenSource? _scanCts;
 
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private string? _errorMessage;
@@ -72,6 +73,12 @@ public partial class ScanViewModel : ObservableObject
     {
         if (string.IsNullOrEmpty(SelectedDrive)) return;
 
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        _scanCts = new CancellationTokenSource();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _scanCts.Token);
+        var scanToken = linkedCts.Token;
+
         IsScanning = true;
         ErrorMessage = null;
         RootNode = null;
@@ -83,7 +90,8 @@ public partial class ScanViewModel : ObservableObject
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             StatusText = "Preparando vista previa...";
 
-            RootNode = await _scanService.ScanPreviewAsync(SelectedDrive, ct);
+            RootNode = await _scanService.ScanPreviewAsync(SelectedDrive, scanToken);
+            scanToken.ThrowIfCancellationRequested();
             ApplySizePercentages(RootNode);
 
             StatusText = "Analizando en profundidad...";
@@ -102,7 +110,8 @@ public partial class ScanViewModel : ObservableObject
                 StatusText = pendingPath;
             });
 
-            RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, ct);
+            RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, scanToken);
+            scanToken.ThrowIfCancellationRequested();
             ApplySizePercentages(RootNode);
 
             stopwatch.Stop();
@@ -123,6 +132,8 @@ public partial class ScanViewModel : ObservableObject
         finally
         {
             IsScanning = false;
+            _scanCts?.Dispose();
+            _scanCts = null;
         }
     }
 
@@ -199,7 +210,12 @@ public partial class ScanViewModel : ObservableObject
     private IRelayCommand? _cancelStartScanCommand;
 
     public IRelayCommand CancelStartScanCommand
-        => _cancelStartScanCommand ??= new RelayCommand(() => StartScanCommand.Cancel());
+        => _cancelStartScanCommand ??= new RelayCommand(() =>
+        {
+            _scanCts?.Cancel();
+            StartScanCommand.Cancel();
+            StatusText = "Cancelando...";
+        });
 
     private static void ApplySizePercentages(DiskNode root)
     {

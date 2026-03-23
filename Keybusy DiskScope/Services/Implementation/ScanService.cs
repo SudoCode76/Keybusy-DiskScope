@@ -145,7 +145,6 @@ public sealed class ScanService : IScanService
         var subDirs = new List<string>();
         var fileNodes = new List<DiskNode>();
 
-        // Enumerate entries (non-recursive)
         try
         {
             foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
@@ -181,49 +180,56 @@ public sealed class ScanService : IScanService
             _logger.LogWarning(ex, "I/O error enumerating directories: {Path}", path);
         }
 
-        var childNodes = new ConcurrentBag<DiskNode>();
-        var parallelOptions = new ParallelOptions
+        try
         {
-            CancellationToken = ct,
-            MaxDegreeOfParallelism = _maxDegreeOfParallelism
-        };
+            var childNodes = new ConcurrentBag<DiskNode>();
+            var parallelOptions = new ParallelOptions
+            {
+                CancellationToken = ct,
+                MaxDegreeOfParallelism = _maxDegreeOfParallelism
+            };
 
-        Parallel.ForEach(subDirs, parallelOptions, subPath =>
-        {
-            try
+            Parallel.ForEach(subDirs, parallelOptions, subPath =>
             {
-                var child = ScanDirectoryParallel(subPath, progress, ct, depth + 1);
-                childNodes.Add(child);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                _logger.LogWarning(ex, "Access denied: {Path}", subPath);
-            }
-            catch (DirectoryNotFoundException ex)
-            {
-                _logger.LogWarning(ex, "Directory missing: {Path}", subPath);
-            }
-            catch (IOException ex)
-            {
-                _logger.LogWarning(ex, "I/O error scanning: {Path}", subPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Unexpected error scanning: {Path}", subPath);
-            }
-        });
+                try
+                {
+                    var child = ScanDirectoryParallel(subPath, progress, ct, depth + 1);
+                    childNodes.Add(child);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "Access denied: {Path}", subPath);
+                }
+                catch (DirectoryNotFoundException ex)
+                {
+                    _logger.LogWarning(ex, "Directory missing: {Path}", subPath);
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogWarning(ex, "I/O error scanning: {Path}", subPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unexpected error scanning: {Path}", subPath);
+                }
+            });
 
-        foreach (var fileNode in fileNodes)
-        {
-            node.Children.Add(fileNode);
+            foreach (var fileNode in fileNodes)
+            {
+                node.Children.Add(fileNode);
+            }
+
+            foreach (var child in childNodes)
+            {
+                node.Children.Add(child);
+                node.SizeBytes += child.SizeBytes;
+                node.FileCount += child.FileCount;
+                node.FolderCount += 1 + child.FolderCount;
+            }
         }
-
-        foreach (var child in childNodes)
+        catch (OperationCanceledException)
         {
-            node.Children.Add(child);
-            node.SizeBytes += child.SizeBytes;
-            node.FileCount += child.FileCount;
-            node.FolderCount += 1 + child.FolderCount;
+            return node;
         }
 
         node.HasChildren = node.Children.Count > 0;
