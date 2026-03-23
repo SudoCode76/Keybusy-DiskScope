@@ -87,9 +87,19 @@ public partial class ScanViewModel : ObservableObject
             ApplySizePercentages(RootNode);
 
             StatusText = "Analizando en profundidad...";
+            var lastUiUpdate = DateTime.MinValue;
+            string? pendingPath = null;
             var progress = new Progress<(long BytesScanned, string CurrentPath)>(report =>
             {
-                StatusText = report.CurrentPath;
+                pendingPath = report.CurrentPath;
+                var now = DateTime.UtcNow;
+                if ((now - lastUiUpdate).TotalMilliseconds < 150)
+                {
+                    return;
+                }
+
+                lastUiUpdate = now;
+                StatusText = pendingPath;
             });
 
             RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, ct);
