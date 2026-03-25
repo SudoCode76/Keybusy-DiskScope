@@ -60,12 +60,14 @@ public sealed class ScanService : IScanService
                 {
                     var child = CreateDirectoryNode(entry, depth + 1);
                     child.HasChildren = DirectoryHasChildren(entry, options);
+                    child.Parent = node;
                     node.Children.Add(child);
                     node.FolderCount += 1;
                 }
                 else
                 {
                     var fileNode = CreateFileNode(entry, depth + 1);
+                    fileNode.Parent = node;
                     node.Children.Add(fileNode);
                     node.SizeBytes += fileNode.SizeBytes;
                     node.FileCount += 1;
@@ -107,6 +109,7 @@ public sealed class ScanService : IScanService
                 {
                     var child = CreateDirectoryNode(entry, 0);
                     child.HasChildren = DirectoryHasChildren(entry, options);
+                    child.Parent = null;
                     results.Add(child);
                 }
                 else
@@ -158,6 +161,7 @@ public sealed class ScanService : IScanService
                 else
                 {
                     var fileNode = CreateFileNode(entry, depth + 1);
+                    fileNode.Parent = node;
                     fileNodes.Add(fileNode);
                     node.SizeBytes += fileNode.SizeBytes;
                     node.FileCount += 1;
@@ -194,6 +198,7 @@ public sealed class ScanService : IScanService
                 try
                 {
                     var child = ScanDirectoryParallel(subPath, progress, ct, depth + 1);
+                    child.Parent = node;
                     childNodes.Add(child);
                 }
                 catch (UnauthorizedAccessException ex)

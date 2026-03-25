@@ -23,6 +23,7 @@
             <converters:BoolToGridLengthConverter x:Key="BoolToGridLengthConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
             <converters:DepthToThicknessConverter x:Key="DepthToThicknessConverter" />
+            <converters:BoolToSelectionBrushConverter x:Key="BoolToSelectionBrushConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

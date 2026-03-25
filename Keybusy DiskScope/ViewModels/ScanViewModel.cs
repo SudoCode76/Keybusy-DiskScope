@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-using Keybusy_DiskScope.Services.Implementation;
+using Keybusy_DiskScope.Services;
 
 namespace Keybusy_DiskScope.ViewModels;
 
@@ -8,6 +8,7 @@ public partial class ScanViewModel : ObservableObject
 {
     private readonly IScanService _scanService;
     private readonly ISnapshotService _snapshotService;
+    private readonly IFileDeleteService _fileDeleteService;
     private readonly ILogger<ScanViewModel> _logger;
     private CancellationTokenSource? _scanCts;
 
@@ -17,6 +18,7 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private double _progressValue;
     [ObservableProperty] private string? _selectedDrive;
     [ObservableProperty] private DiskNode? _rootNode;
+    [ObservableProperty] private DiskNode? _selectedNode;
     [ObservableProperty] private string _snapshotName = string.Empty;
     [ObservableProperty] private string _scanTitle = "Analisis";
     [ObservableProperty] private string _scanSummary = string.Empty;
@@ -49,10 +51,12 @@ public partial class ScanViewModel : ObservableObject
     public ScanViewModel(
         IScanService scanService,
         ISnapshotService snapshotService,
+        IFileDeleteService fileDeleteService,
         ILogger<ScanViewModel> logger)
     {
         _scanService = scanService;
         _snapshotService = snapshotService;
+        _fileDeleteService = fileDeleteService;
         _logger = logger;
 
         StatusText = "Seleccione una unidad y pulse Escanear.";
@@ -150,7 +154,7 @@ public partial class ScanViewModel : ObservableObject
                 DrivePath     = SelectedDrive ?? string.Empty,
                 CreatedAt     = DateTime.Now,
                 TotalSizeBytes = RootNode.SizeBytes,
-                TreeJson      = SnapshotService.SerializeTree(RootNode)
+                TreeJson      = JsonSerializer.Serialize(RootNode)
             };
 
             await _snapshotService.SaveAsync(record);
@@ -292,6 +296,7 @@ public partial class ScanViewModel : ObservableObject
         foreach (var child in children)
         {
             ApplyDepth(child, depth);
+            child.Parent = node;
         }
         return FilterAndSortNodes(children).ToList();
     }
@@ -302,6 +307,105 @@ public partial class ScanViewModel : ObservableObject
         foreach (var child in node.Children)
         {
             ApplyDepth(child, depth + 1);
+        }
+    }
+
+    [RelayCommand]
+    private void SelectNode(DiskNode? node)
+    {
+        if (SelectedNode is not null)
+        {
+            SelectedNode.IsSelected = false;
+        }
+
+        SelectedNode = node;
+        if (SelectedNode is not null)
+        {
+            SelectedNode.IsSelected = true;
+        }
+
+        ApplyDisplayNodes();
+    }
+
+    [RelayCommand]
+    private async Task ToggleExpandAndSelectAsync(DiskNode? node)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        SelectNode(node);
+        if (!node.IsDirectory)
+        {
+            return;
+        }
+
+        await ToggleExpandAsync(node);
+    }
+
+    [RelayCommand]
+    private async Task DeleteNodeAsync(DiskNode? node)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        await DeleteNodeInternalAsync(node, permanent: false);
+    }
+
+    [RelayCommand]
+    private Task DeleteSelectedAsync()
+        => DeleteSelectedInternalAsync(permanent: false);
+
+    [RelayCommand]
+    private Task DeleteSelectedPermanentAsync()
+        => DeleteSelectedInternalAsync(permanent: true);
+
+    private Task DeleteSelectedInternalAsync(bool permanent)
+    {
+        if (SelectedNode is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return DeleteNodeInternalAsync(SelectedNode, permanent);
+    }
+
+    private async Task DeleteNodeInternalAsync(DiskNode node, bool permanent)
+    {
+        try
+        {
+            await _fileDeleteService.DeleteAsync(node.FullPath, permanent, CancellationToken.None);
+            RemoveNodeFromTree(node);
+            if (ReferenceEquals(SelectedNode, node))
+            {
+                SelectedNode = null;
+            }
+            ApplyDisplayNodes();
+            StatusText = permanent
+                ? $"Eliminado permanentemente: {node.Name}"
+                : $"Enviado a la papelera: {node.Name}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete {Path}", node.FullPath);
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    private void RemoveNodeFromTree(DiskNode node)
+    {
+        if (node.Parent is not null)
+        {
+            node.Parent.Children.Remove(node);
+            return;
+        }
+
+        if (RootNode is not null)
+        {
+            RootNode.Children.Remove(node);
         }
     }
 

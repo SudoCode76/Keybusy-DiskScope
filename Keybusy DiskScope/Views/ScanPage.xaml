@@ -11,6 +11,13 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     x:DefaultBindMode="OneTime">
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="Delete"
+                             Invoked="DeleteAccelerator_Invoked" />
+        <KeyboardAccelerator Key="Delete"
+                             Modifiers="Shift"
+                             Invoked="DeletePermanentAccelerator_Invoked" />
+    </Page.KeyboardAccelerators>
 
     <Grid Padding="24" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="16">
 
@@ -207,8 +214,10 @@
                 </Border>
 
                 <ScrollViewer Grid.Row="1"
+                              x:Name="ResultsScroll"
                               VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled">
+                              HorizontalScrollBarVisibility="Disabled"
+                              IsTabStop="True">
                     <controls:ItemsRepeater
                         ItemsSource="{x:Bind ViewModel.DisplayNodes}">
                         <controls:ItemsRepeater.Layout>
@@ -216,13 +225,25 @@
                         </controls:ItemsRepeater.Layout>
                         <controls:ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="models:DiskNode">
-                            <Grid Padding="8,4"
-                                  ColumnSpacing="8">
-                                <Grid.Transitions>
-                                    <TransitionCollection>
-                                        <EntranceThemeTransition FromVerticalOffset="6" />
-                                    </TransitionCollection>
-                                </Grid.Transitions>
+                                <Border Background="{x:Bind IsSelected, Converter={StaticResource BoolToSelectionBrushConverter}, Mode=OneTime}"
+                                        CornerRadius="6"
+                                        PointerPressed="Row_PointerPressed"
+                                        RightTapped="Row_RightTapped">
+                                    <Border.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Eliminar"
+                                                            Tag="{x:Bind}"
+                                                            Click="DeleteMenuItem_Click"
+                                                            AutomationProperties.Name="Eliminar elemento" />
+                                        </MenuFlyout>
+                                    </Border.ContextFlyout>
+                                    <Grid Padding="8,4"
+                                          ColumnSpacing="8">
+                                    <Grid.Transitions>
+                                        <TransitionCollection>
+                                            <EntranceThemeTransition FromVerticalOffset="6" />
+                                        </TransitionCollection>
+                                    </Grid.Transitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="{Binding ElementName=Root, Path=ViewModel.ShowSizeColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=140}" />
@@ -233,8 +254,8 @@
 
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="8"
-                                                Margin="{x:Bind Depth, Converter={StaticResource DepthToThicknessConverter}, ConverterParameter=20, Mode=OneWay}">
-                                        <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandCommand}"
+                                                Margin="{x:Bind Depth, Converter={StaticResource DepthToThicknessConverter}, ConverterParameter=20, Mode=OneTime}">
+                                        <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
                                                 CommandParameter="{x:Bind}"
                                                 Background="Transparent"
                                                 BorderThickness="0"
@@ -247,13 +268,22 @@
                                                       Opacity="0.65"
                                                       Visibility="{x:Bind HasChildren, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         </Button>
-                                        <FontIcon Glyph="&#xE8B7;"
-                                                  Foreground="{ThemeResource FolderIconBrush}"
-                                                  Visibility="{x:Bind IsDirectory, Converter={StaticResource BoolToVisibilityConverter}}" />
-                                        <FontIcon Glyph="&#xE8A5;"
-                                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                  Visibility="{x:Bind IsFile, Converter={StaticResource BoolToVisibilityConverter}}" />
-                                        <TextBlock Text="{x:Bind Name}" />
+                                        <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
+                                                CommandParameter="{x:Bind}"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="0"
+                                                AutomationProperties.Name="Abrir elemento">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE8B7;"
+                                                          Foreground="{ThemeResource FolderIconBrush}"
+                                                          Visibility="{x:Bind IsDirectory, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                <FontIcon Glyph="&#xE8A5;"
+                                                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                          Visibility="{x:Bind IsFile, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                <TextBlock Text="{x:Bind Name}" />
+                                            </StackPanel>
+                                        </Button>
                                     </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{x:Bind DisplaySize}"
@@ -272,6 +302,7 @@
                                                HorizontalAlignment="Right"
                                                Visibility="{Binding ElementName=Root, Path=ViewModel.ShowModifiedColumn, Converter={StaticResource BoolToVisibilityConverter}}" />
                                 </Grid>
+                            </Border>
                             </DataTemplate>
                         </controls:ItemsRepeater.ItemTemplate>
                     </controls:ItemsRepeater>

@@ -49,6 +49,7 @@ public partial class App : Application
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IScanService, ScanService>();
         services.AddSingleton<ISnapshotService, SnapshotService>();
+        services.AddSingleton<IFileDeleteService, FileDeleteService>();
         services.AddSingleton<IDiffService, DiffService>();
         services.AddSingleton<INavigationService, NavigationService>();
 

@@ -21,6 +21,8 @@ public sealed class DiskNode
     public bool ChildrenLoaded { get; set; }
     public int Depth { get; set; }
     public bool IsExpanded { get; set; }
+    public DiskNode? Parent { get; set; }
+    public bool IsSelected { get; set; }
 
     public string ExpandGlyph => IsExpanded ? "\uE70D" : "\uE76C";
 
