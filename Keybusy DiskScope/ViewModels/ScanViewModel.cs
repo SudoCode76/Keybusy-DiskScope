@@ -36,6 +36,7 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private bool _showModifiedColumn = true;
 
     public bool HasError => ErrorMessage is not null;
+    public bool IsNotScanning => !IsScanning;
 
     public ObservableCollection<string> AvailableDrives { get; } = new();
     public ObservableCollection<DiskNode> DisplayNodes { get; } = new();
@@ -68,6 +69,12 @@ public partial class ScanViewModel : ObservableObject
         AvailableDrives.Clear();
         foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
             AvailableDrives.Add(drive.RootDirectory.FullName);
+
+        if (!string.IsNullOrWhiteSpace(SelectedDrive)
+            && AvailableDrives.Contains(SelectedDrive))
+        {
+            return;
+        }
 
         SelectedDrive = AvailableDrives.FirstOrDefault();
     }
@@ -208,6 +215,9 @@ public partial class ScanViewModel : ObservableObject
 
     partial void OnFilterLargeOnlyChanged(bool? value)
         => ApplyDisplayNodes();
+
+    partial void OnIsScanningChanged(bool value)
+        => OnPropertyChanged(nameof(IsNotScanning));
 
     public bool HasSummary => !string.IsNullOrWhiteSpace(ScanSummary);
 

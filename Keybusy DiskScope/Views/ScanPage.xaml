@@ -19,90 +19,69 @@
                              Invoked="DeletePermanentAccelerator_Invoked" />
     </Page.KeyboardAccelerators>
 
-    <Grid Padding="24" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="16">
+    <Grid Padding="24" RowDefinitions="Auto,*" RowSpacing="12">
 
-        <!-- Header -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
-                <TextBlock Text="{x:Bind ViewModel.ScanTitle}" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock Text="{x:Bind ViewModel.ScanSummary}"
-                           Visibility="{x:Bind ViewModel.HasSummary, Converter={StaticResource BoolToVisibilityConverter}}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
+        <!-- Compact top bar -->
+        <Grid Grid.Row="0"
+              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnSpacing="10"
+              VerticalAlignment="Center">
+            <TextBlock Grid.Column="0"
+                       Text="{x:Bind ViewModel.ScanTitle}"
+                       Style="{ThemeResource TitleTextBlockStyle}" />
 
-            <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource PillStyle}" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind ViewModel.ResultsSummary}" />
-            </Border>
+            <ComboBox Grid.Column="1"
+                      Width="160"
+                      ItemsSource="{x:Bind ViewModel.SortOptions}"
+                      SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
+                      AutomationProperties.Name="Ordenar por" />
 
-            <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
-                       Text="{x:Bind ViewModel.RootDisplayLabel}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </Grid>
-
-        <!-- Scan controls -->
-        <Grid Grid.Row="1" ColumnDefinitions="2*,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
-            <ComboBox Grid.Column="0"
-                      ItemsSource="{x:Bind ViewModel.AvailableDrives}"
-                      SelectedItem="{x:Bind ViewModel.SelectedDrive, Mode=TwoWay}"
-                      PlaceholderText="Seleccione unidad"
-                      AutomationProperties.Name="Seleccionar unidad" />
-
-            <Button Grid.Column="1"
-                    Command="{x:Bind ViewModel.StartScanCommand}"
-                    AutomationProperties.Name="Iniciar escaneo">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE768;" />
-                    <TextBlock Text="Escanear" />
-                </StackPanel>
-            </Button>
-
-            <Button Grid.Column="2"
-                    Command="{x:Bind ViewModel.CancelStartScanCommand}"
-                    IsEnabled="{x:Bind ViewModel.IsScanning}"
-                    AutomationProperties.Name="Cancelar escaneo">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE711;" />
-                    <TextBlock Text="Cancelar" />
-                </StackPanel>
-            </Button>
-
-            <TextBox Grid.Column="3"
-                     Text="{x:Bind ViewModel.SnapshotName, Mode=TwoWay}"
-                     PlaceholderText="Nombre del snapshot"
-                     AutomationProperties.Name="Nombre del snapshot" />
-        </Grid>
-
-        <!-- Filters + actions -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-                <ComboBox ItemsSource="{x:Bind ViewModel.SortOptions}"
-                          SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
-                          Width="200"
-                          AutomationProperties.Name="Ordenar por" />
-
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
                 <CheckBox Content="Solo carpetas"
                           IsChecked="{x:Bind ViewModel.FilterDirectoriesOnly, Mode=TwoWay}"
                           AutomationProperties.Name="Filtrar solo carpetas" />
-
                 <CheckBox Content=">= 1 GB"
                           IsChecked="{x:Bind ViewModel.FilterLargeOnly, Mode=TwoWay}"
                           AutomationProperties.Name="Filtrar solo elementos grandes" />
             </StackPanel>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <Button Command="{x:Bind ViewModel.SaveSnapshotCommand}"
-                        IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"
-                        AutomationProperties.Name="Guardar snapshot">
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
+                <Button Command="{x:Bind ViewModel.StartScanCommand}"
+                        AutomationProperties.Name="Iniciar escaneo">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE74E;" />
-                        <TextBlock Text="Guardar" />
+                        <FontIcon Glyph="&#xE768;" />
+                        <TextBlock Text="Escanear" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{x:Bind ViewModel.CancelStartScanCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsScanning}"
+                        AutomationProperties.Name="Cancelar escaneo">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE711;" />
+                        <TextBlock Text="Cancelar" />
                     </StackPanel>
                 </Button>
             </StackPanel>
+
+            <TextBox Grid.Column="4"
+                     Width="200"
+                     Text="{x:Bind ViewModel.SnapshotName, Mode=TwoWay}"
+                     PlaceholderText="Nombre del snapshot"
+                     AutomationProperties.Name="Nombre del snapshot" />
+
+            <Button Grid.Column="5"
+                    Command="{x:Bind ViewModel.SaveSnapshotCommand}"
+                    IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"
+                    AutomationProperties.Name="Guardar snapshot">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE74E;" />
+                    <TextBlock Text="Guardar" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <!-- Results -->
-        <Grid Grid.Row="3" RowDefinitions="Auto,Auto,*" RowSpacing="12">
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="8">
             <InfoBar
                 IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
                 Severity="Error"
@@ -110,23 +89,23 @@
                 Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                 IsClosable="True" />
 
-            <Border Grid.Row="1"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    CornerRadius="8"
-                    Padding="48,6,12,6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <ProgressRing IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
-                                  Width="18" Height="18"
-                                  AutomationProperties.Name="Escaneando" />
-                    <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-            </Border>
-
-            <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="8">
+            <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="8">
+                <Border Grid.RowSpan="2"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="12"
+                        Visibility="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                                      Width="56" Height="56"
+                                      AutomationProperties.Name="Escaneando" />
+                        <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         CornerRadius="8"
-                        Padding="8,6">
+                        Padding="8,6"
+                        Visibility="{x:Bind ViewModel.IsNotScanning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -217,7 +196,8 @@
                               x:Name="ResultsScroll"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
-                              IsTabStop="True">
+                              IsTabStop="True"
+                              Visibility="{x:Bind ViewModel.IsNotScanning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                     <controls:ItemsRepeater
                         ItemsSource="{x:Bind ViewModel.DisplayNodes}">
                         <controls:ItemsRepeater.Layout>

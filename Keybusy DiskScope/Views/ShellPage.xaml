@@ -7,14 +7,6 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Page.Resources>
-        <LinearGradientBrush x:Key="HeroGradientBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#00000000" Offset="0" />
-            <GradientStop Color="#26000000" Offset="0.5" />
-            <GradientStop Color="#52000000" Offset="1" />
-        </LinearGradientBrush>
-    </Page.Resources>
-
     <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <!-- Custom title bar drag region -->
@@ -101,10 +93,7 @@
             </NavigationView.FooterMenuItems>
 
             <NavigationView.Content>
-                <Grid>
-                    <Rectangle Fill="{StaticResource HeroGradientBrush}" />
-                    <Frame x:Name="ContentFrame" Background="Transparent" />
-                </Grid>
+                <Frame x:Name="ContentFrame" Background="Transparent" />
             </NavigationView.Content>
         </NavigationView>
     </Grid>

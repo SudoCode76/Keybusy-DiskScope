@@ -10,6 +10,8 @@ namespace Keybusy_DiskScope.Views;
 public sealed partial class ScanPage : Page
 {
     public ScanViewModel ViewModel { get; }
+    private string? _pendingDrive;
+    private bool _pendingAutoScan;
 
     public ScanPage()
     {
@@ -19,6 +21,18 @@ public sealed partial class ScanPage : Page
         {
             ViewModel.LoadDrives();
             ResultsScroll.Focus(FocusState.Programmatic);
+
+            if (_pendingAutoScan && !string.IsNullOrWhiteSpace(_pendingDrive))
+            {
+                ViewModel.SelectedDrive = _pendingDrive;
+                if (!ViewModel.IsScanning)
+                {
+                    _ = ViewModel.StartScanCommand.ExecuteAsync(null);
+                }
+
+                _pendingAutoScan = false;
+                _pendingDrive = null;
+            }
         };
     }
 
@@ -27,18 +41,16 @@ public sealed partial class ScanPage : Page
     {
         base.OnNavigatedTo(e);
 
-        if (ViewModel.AvailableDrives.Count == 0)
-        {
-            ViewModel.LoadDrives();
-        }
-
         if (e.Parameter is string drive && !string.IsNullOrWhiteSpace(drive))
         {
             ViewModel.SelectedDrive = drive;
-            if (!ViewModel.IsScanning)
-            {
-                _ = ViewModel.StartScanCommand.ExecuteAsync(null);
-            }
+            _pendingDrive = drive;
+            _pendingAutoScan = true;
+        }
+
+        if (ViewModel.AvailableDrives.Count == 0)
+        {
+            ViewModel.LoadDrives();
         }
     }
 
