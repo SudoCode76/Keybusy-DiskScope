@@ -15,6 +15,9 @@ public sealed class DiffNode
     public long SizeBefore { get; init; }
     public long SizeAfter { get; init; }
     public long SizeDelta => SizeAfter - SizeBefore;
+    public DateTime LastModifiedBefore { get; init; }
+    public DateTime LastModifiedAfter { get; init; }
+    public DateTime LastModifiedEffective => LastModifiedAfter != default ? LastModifiedAfter : LastModifiedBefore;
 
     public string DisplayDelta
     {

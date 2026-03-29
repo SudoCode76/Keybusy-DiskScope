@@ -27,8 +27,6 @@ public partial class CompareViewModel : ObservableObject
     [ObservableProperty] private bool _saveCurrentAsSnapshot;
     [ObservableProperty] private DiffNode? _diffRoot;
     [ObservableProperty] private DiffRow? _selectedRow;
-    [ObservableProperty] private string _searchText = string.Empty;
-    [ObservableProperty] private int _selectedFilterIndex;
     [ObservableProperty] private int _selectedSortIndex;
 
     public bool HasError => ErrorMessage is not null;
@@ -42,19 +40,12 @@ public partial class CompareViewModel : ObservableObject
     public ObservableCollection<string> AvailableDrives { get; } = new();
     public ObservableCollection<DiffRow> DisplayRows { get; } = new();
 
-    public IReadOnlyList<string> FilterOptions { get; } = new[]
-    {
-        "Todos",
-        "Modificados",
-        "Nuevos",
-        "Eliminados"
-    };
-
     public IReadOnlyList<string> SortOptions { get; } = new[]
     {
         "Mayor diferencia",
         "Nombre",
-        "Tamano actual"
+        "Tamano actual",
+        "Fecha de modificacion"
     };
 
     public CompareViewModel(
@@ -149,12 +140,6 @@ public partial class CompareViewModel : ObservableObject
     partial void OnIsLoadingChanged(bool value)
         => OnPropertyChanged(nameof(IsNotLoading));
 
-    partial void OnSearchTextChanged(string value)
-        => BuildRows();
-
-    partial void OnSelectedFilterIndexChanged(int value)
-        => BuildRows();
-
     partial void OnSelectedSortIndexChanged(int value)
         => BuildRows();
 
@@ -178,10 +163,12 @@ public partial class CompareViewModel : ObservableObject
 
     private void BuildRows()
     {
+        string? selectedPath = SelectedRow?.Node.FullPath;
         DisplayRows.Clear();
 
         if (DiffRoot is null)
         {
+            SelectedRow = null;
             return;
         }
 
@@ -194,6 +181,30 @@ public partial class CompareViewModel : ObservableObject
                 InsertChildren(row);
             }
         }
+
+        RestoreSelection(selectedPath);
+    }
+
+    private void RestoreSelection(string? selectedPath)
+    {
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            SelectedRow = null;
+            return;
+        }
+
+        DiffRow? matchedRow = null;
+        foreach (var row in DisplayRows)
+        {
+            bool isMatch = string.Equals(row.Node.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase);
+            row.IsSelected = isMatch;
+            if (isMatch && matchedRow is null)
+            {
+                matchedRow = row;
+            }
+        }
+
+        SelectedRow = matchedRow;
     }
 
     private IEnumerable<DiffRow> CreateRowsFromNodes(IEnumerable<DiffNode> nodes, int depth)
@@ -204,8 +215,7 @@ public partial class CompareViewModel : ObservableObject
             rows.Add(new DiffRow(node, depth));
         }
 
-        var filtered = ApplyFilter(rows);
-        return ApplySort(filtered).ToList();
+        return ApplySort(rows).ToList();
     }
 
     private static void ResetExpansion(DiffNode node)
@@ -217,31 +227,13 @@ public partial class CompareViewModel : ObservableObject
         }
     }
 
-    private IEnumerable<DiffRow> ApplyFilter(IEnumerable<DiffRow> rows)
-    {
-        var search = SearchText?.Trim();
-        var filtered = rows;
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            filtered = filtered.Where(r => r.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
-        }
-
-        return SelectedFilterIndex switch
-        {
-            1 => filtered.Where(r => r.Status is DiffStatus.Grown or DiffStatus.Shrunk),
-            2 => filtered.Where(r => r.Status == DiffStatus.Added),
-            3 => filtered.Where(r => r.Status == DiffStatus.Removed),
-            _ => filtered
-        };
-    }
-
     private IEnumerable<DiffRow> ApplySort(IEnumerable<DiffRow> rows)
     {
         return SelectedSortIndex switch
         {
             1 => rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
             2 => rows.OrderByDescending(r => r.SizeAfter),
+            3 => rows.OrderByDescending(r => r.LastModifiedEffective),
             _ => rows.OrderByDescending(r => Math.Abs(r.SizeDelta))
         };
     }
@@ -331,7 +323,7 @@ public partial class CompareViewModel : ObservableObject
 
             if (row.HasChildren && row.IsExpanded)
             {
-                var children = ApplySort(ApplyFilter(row.Node.Children.Select(child => new DiffRow(child, row.Depth + 1)))).ToList();
+                var children = ApplySort(row.Node.Children.Select(child => new DiffRow(child, row.Depth + 1))).ToList();
                 InsertFlattened(children, ref insertIndex);
             }
         }

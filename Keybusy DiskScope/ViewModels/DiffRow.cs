@@ -39,6 +39,7 @@ public partial class DiffRow : ObservableObject
     public long SizeBefore => Node.SizeBefore;
     public long SizeAfter => Node.SizeAfter;
     public long SizeDelta => Node.SizeDelta;
+    public DateTime LastModifiedEffective => Node.LastModifiedEffective;
 
     [ObservableProperty]
     private bool _isSelected;

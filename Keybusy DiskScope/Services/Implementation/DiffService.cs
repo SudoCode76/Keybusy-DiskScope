@@ -26,6 +26,8 @@ public sealed class DiffService : IDiffService
         long sizeBefore = before?.SizeBytes ?? 0;
         long sizeAfter  = after?.SizeBytes  ?? 0;
         long delta      = sizeAfter - sizeBefore;
+        DateTime lastModifiedBefore = before?.LastModified ?? default;
+        DateTime lastModifiedAfter = after?.LastModified ?? default;
 
         var status = (before, after) switch
         {
@@ -43,7 +45,9 @@ public sealed class DiffService : IDiffService
             IsDirectory = isDir,
             Status     = status,
             SizeBefore = sizeBefore,
-            SizeAfter  = sizeAfter
+            SizeAfter  = sizeAfter,
+            LastModifiedBefore = lastModifiedBefore,
+            LastModifiedAfter = lastModifiedAfter
         };
 
         if (isDir)
