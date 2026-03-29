@@ -84,6 +84,15 @@
 
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem
+                    Content="Acerca de"
+                    Tag="AboutPage"
+                    AutomationProperties.Name="Acerca de la aplicacion">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItem
                     Content="Configuracion"
                     Tag="SettingsPage"
                     AutomationProperties.Name="Configuracion">

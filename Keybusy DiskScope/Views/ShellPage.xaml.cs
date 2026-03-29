@@ -13,6 +13,7 @@ public sealed partial class ShellPage : Page
         { "ScanPage",      typeof(ScanPage) },
         { "SnapshotsPage", typeof(SnapshotsPage) },
         { "ComparePage",   typeof(ComparePage) },
+        { "AboutPage",     typeof(AboutPage) },
         { "SettingsPage",  typeof(SettingsPage) }
     };
 

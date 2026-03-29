@@ -14,6 +14,7 @@ public sealed class NavigationService : INavigationService
         { "ScanPage", typeof(Views.ScanPage) },
         { "SnapshotsPage", typeof(Views.SnapshotsPage) },
         { "ComparePage", typeof(Views.ComparePage) },
+        { "AboutPage", typeof(Views.AboutPage) },
         { "SettingsPage", typeof(Views.SettingsPage) }
     };
 
