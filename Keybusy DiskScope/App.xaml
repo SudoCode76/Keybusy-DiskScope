@@ -20,6 +20,7 @@
             <converters:BoolToSelectionBrushConverter x:Key="BoolToSelectionBrushConverter" />
             <converters:DiffStatusToBrushConverter x:Key="DiffStatusToBrushConverter" />
             <converters:DateTimeToStringConverter x:Key="DateTimeToStringConverter" />
+            <converters:DiffStatusToNameBrushConverter x:Key="DiffStatusToNameBrushConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
