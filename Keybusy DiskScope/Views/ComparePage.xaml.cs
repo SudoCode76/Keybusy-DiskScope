@@ -24,7 +24,7 @@ public sealed partial class ComparePage : Page
 
     private void Row_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && element.DataContext is DiffRow row)
+        if (sender is FrameworkElement element && element.Tag is DiffRow row)
         {
             ViewModel.SelectRowCommand.Execute(row);
         }
@@ -32,7 +32,7 @@ public sealed partial class ComparePage : Page
 
     private void Row_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && element.DataContext is DiffRow row)
+        if (sender is FrameworkElement element && element.Tag is DiffRow row)
         {
             ViewModel.SelectRowCommand.Execute(row);
         }
@@ -43,6 +43,14 @@ public sealed partial class ComparePage : Page
         if (sender is MenuFlyoutItem item && item.Tag is DiffRow row)
         {
             ViewModel.DeleteRowCommand.Execute(row);
+        }
+    }
+
+    private void ToggleExpand_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is DiffRow row)
+        {
+            ViewModel.ToggleExpandAndSelectCommand.Execute(row);
         }
     }
 }

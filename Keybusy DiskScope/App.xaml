@@ -19,6 +19,7 @@
             <converters:DepthToThicknessConverter x:Key="DepthToThicknessConverter" />
             <converters:BoolToSelectionBrushConverter x:Key="BoolToSelectionBrushConverter" />
             <converters:DiffStatusToBrushConverter x:Key="DiffStatusToBrushConverter" />
+            <converters:DateTimeToStringConverter x:Key="DateTimeToStringConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

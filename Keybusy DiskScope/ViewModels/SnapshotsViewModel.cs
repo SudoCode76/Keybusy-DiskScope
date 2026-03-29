@@ -10,6 +10,9 @@ public partial class SnapshotsViewModel : ObservableObject
     [ObservableProperty] private SnapshotRecord? _selectedSnapshot;
 
     public bool HasError => ErrorMessage is not null;
+    public bool HasSnapshots => Snapshots.Count > 0;
+    public bool HasNoSnapshots => !HasSnapshots;
+    public bool IsNotLoading => !IsLoading;
 
     public ObservableCollection<SnapshotRecord> Snapshots { get; } = new();
 
@@ -19,6 +22,7 @@ public partial class SnapshotsViewModel : ObservableObject
     {
         _snapshotService = snapshotService;
         _logger = logger;
+        Snapshots.CollectionChanged += (_, _) => OnSnapshotsChanged();
     }
 
     [RelayCommand]
@@ -26,6 +30,7 @@ public partial class SnapshotsViewModel : ObservableObject
     {
         IsLoading = true;
         ErrorMessage = null;
+        await Task.Yield();
         try
         {
             var records = await _snapshotService.GetAllAsync();
@@ -61,4 +66,13 @@ public partial class SnapshotsViewModel : ObservableObject
 
     partial void OnErrorMessageChanged(string? value)
         => OnPropertyChanged(nameof(HasError));
+
+    partial void OnIsLoadingChanged(bool value)
+        => OnPropertyChanged(nameof(IsNotLoading));
+
+    private void OnSnapshotsChanged()
+    {
+        OnPropertyChanged(nameof(HasSnapshots));
+        OnPropertyChanged(nameof(HasNoSnapshots));
+    }
 }

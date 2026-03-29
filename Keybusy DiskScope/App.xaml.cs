@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Keybusy_DiskScope.Data;
 using Keybusy_DiskScope.Services.Implementation;
@@ -13,6 +14,18 @@ namespace Keybusy_DiskScope;
 
 public partial class App : Application
 {
+    private const uint HardWorkingSetMaxFlag = 0x00000002;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetProcessWorkingSetSizeEx(
+        IntPtr hProcess,
+        UIntPtr dwMinimumWorkingSetSize,
+        UIntPtr dwMaximumWorkingSetSize,
+        uint flags);
+
     public static IServiceProvider Services { get; private set; } = null!;
 
     public Window? MainWindow { get; private set; }
@@ -62,6 +75,7 @@ public partial class App : Application
 
         Services = services.BuildServiceProvider();
         _appLogger = Services.GetService<ILogger<App>>();
+        TryLimitWorkingSet();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -104,5 +118,23 @@ public partial class App : Application
         }
 
         _appLogger?.LogError(e.Exception, "Unhandled exception: {Message}", e.Message);
+    }
+
+    private void TryLimitWorkingSet()
+    {
+        const ulong minBytes = 64ul * 1024 * 1024;
+        const ulong maxBytes = 2ul * 1024 * 1024 * 1024;
+
+        bool success = SetProcessWorkingSetSizeEx(
+            GetCurrentProcess(),
+            new UIntPtr(minBytes),
+            new UIntPtr(maxBytes),
+            HardWorkingSetMaxFlag);
+
+        if (!success)
+        {
+            int error = Marshal.GetLastWin32Error();
+            _appLogger?.LogWarning("Working set limit not applied. Win32Error={Error}", error);
+        }
     }
 }

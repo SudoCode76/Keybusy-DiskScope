@@ -5,6 +5,7 @@ using System.Linq;
 
 using Keybusy_DiskScope.Models;
 using Keybusy_DiskScope.Services;
+using Keybusy_DiskScope.Services.Implementation;
 
 namespace Keybusy_DiskScope.ViewModels;
 
@@ -14,14 +15,16 @@ public partial class CompareViewModel : ObservableObject
     private readonly IDiffService _diffService;
     private readonly IFileDeleteService _fileDeleteService;
     private readonly INavigationService _navigationService;
+    private readonly IScanService _scanService;
     private readonly ILogger<CompareViewModel> _logger;
 
-    private IRelayCommand? _analyzeCurrentCommand;
+    private SnapshotRecord? _currentSnapshot;
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private SnapshotRecord? _snapshotBefore;
-    [ObservableProperty] private SnapshotRecord? _snapshotAfter;
+    [ObservableProperty] private string? _selectedBaseDrive;
+    [ObservableProperty] private bool _saveCurrentAsSnapshot;
     [ObservableProperty] private DiffNode? _diffRoot;
     [ObservableProperty] private DiffRow? _selectedRow;
     [ObservableProperty] private string _searchText = string.Empty;
@@ -31,8 +34,12 @@ public partial class CompareViewModel : ObservableObject
     public bool HasError => ErrorMessage is not null;
     public bool HasResult => DiffRoot is not null;
     public bool IsNotLoading => !IsLoading;
+    public bool HasBaseSnapshots => FilteredSnapshots.Count > 0;
+    public bool HasNoBaseSnapshots => !HasBaseSnapshots;
 
     public ObservableCollection<SnapshotRecord> AvailableSnapshots { get; } = new();
+    public ObservableCollection<SnapshotRecord> FilteredSnapshots { get; } = new();
+    public ObservableCollection<string> AvailableDrives { get; } = new();
     public ObservableCollection<DiffRow> DisplayRows { get; } = new();
 
     public IReadOnlyList<string> FilterOptions { get; } = new[]
@@ -55,12 +62,14 @@ public partial class CompareViewModel : ObservableObject
         IDiffService diffService,
         IFileDeleteService fileDeleteService,
         INavigationService navigationService,
+        IScanService scanService,
         ILogger<CompareViewModel> logger)
     {
         _snapshotService = snapshotService;
         _diffService = diffService;
         _fileDeleteService = fileDeleteService;
         _navigationService = navigationService;
+        _scanService = scanService;
         _logger = logger;
     }
 
@@ -76,6 +85,13 @@ public partial class CompareViewModel : ObservableObject
             AvailableSnapshots.Clear();
             foreach (var r in records)
                 AvailableSnapshots.Add(r);
+
+            LoadDrivesFromSnapshots(records);
+            if (AvailableDrives.Count > 0 && string.IsNullOrWhiteSpace(SelectedBaseDrive))
+            {
+                SelectedBaseDrive = AvailableDrives[0];
+            }
+            FilterSnapshots();
         }
         catch (Exception ex)
         {
@@ -91,16 +107,27 @@ public partial class CompareViewModel : ObservableObject
     [RelayCommand]
     private async Task RunCompareAsync()
     {
-        if (SnapshotBefore is null || SnapshotAfter is null) return;
+        if (SnapshotBefore is null || string.IsNullOrWhiteSpace(SelectedBaseDrive))
+        {
+            return;
+        }
 
         ErrorMessage = null;
         IsLoading = true;
         await Task.Yield();
         try
         {
-            DiffRoot = await Task.Run(() => _diffService.Compare(SnapshotBefore, SnapshotAfter));
+            var currentSnapshot = await BuildCurrentSnapshotAsync(SelectedBaseDrive);
+            _currentSnapshot = currentSnapshot;
+            DiffRoot = await Task.Run(() => _diffService.Compare(SnapshotBefore, currentSnapshot));
             ResetExpansion(DiffRoot);
             BuildRows();
+
+            if (SaveCurrentAsSnapshot)
+            {
+                await _snapshotService.SaveAsync(currentSnapshot);
+                InsertSnapshotRecord(currentSnapshot);
+            }
         }
         catch (Exception ex)
         {
@@ -131,6 +158,24 @@ public partial class CompareViewModel : ObservableObject
     partial void OnSelectedSortIndexChanged(int value)
         => BuildRows();
 
+    partial void OnSnapshotBeforeChanged(SnapshotRecord? value)
+    {
+        if (_currentSnapshot is null || value is null)
+        {
+            return;
+        }
+
+        _ = RecompareWithCurrentAsync();
+    }
+
+    partial void OnSelectedBaseDriveChanged(string? value)
+    {
+        FilterSnapshots();
+        _currentSnapshot = null;
+        DiffRoot = null;
+        DisplayRows.Clear();
+    }
+
     private void BuildRows()
     {
         DisplayRows.Clear();
@@ -156,7 +201,6 @@ public partial class CompareViewModel : ObservableObject
         var rows = new List<DiffRow>();
         foreach (var node in nodes)
         {
-            node.Parent = node.Parent ?? DiffRoot;
             rows.Add(new DiffRow(node, depth));
         }
 
@@ -218,29 +262,23 @@ public partial class CompareViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ToggleExpandAndSelectAsync(DiffRow? row)
+    private Task ToggleExpandAndSelectAsync(DiffRow? row)
     {
         if (row is null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         SelectRow(row);
         if (!row.HasChildren)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        if (row.IsExpanded)
-        {
-            row.IsExpanded = false;
-            RemoveDescendants(row);
-        }
-        else
-        {
-            row.IsExpanded = true;
-            InsertChildren(row);
-        }
+        row.IsExpanded = !row.IsExpanded;
+        BuildRows();
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -269,18 +307,6 @@ public partial class CompareViewModel : ObservableObject
         }
     }
 
-    public IRelayCommand AnalyzeCurrentCommand
-        => _analyzeCurrentCommand ??= new RelayCommand(AnalyzeCurrent);
-
-    private void AnalyzeCurrent()
-    {
-        if (SnapshotAfter is null || string.IsNullOrWhiteSpace(SnapshotAfter.DrivePath))
-        {
-            return;
-        }
-
-        _navigationService.NavigateTo("ScanPage", SnapshotAfter.DrivePath);
-    }
 
     private void InsertChildren(DiffRow parentRow)
     {
@@ -337,5 +363,112 @@ public partial class CompareViewModel : ObservableObject
         {
             DiffRoot.Children.Remove(node);
         }
+    }
+
+    private void FilterSnapshots()
+    {
+        FilteredSnapshots.Clear();
+        SnapshotBefore = null;
+
+        if (string.IsNullOrWhiteSpace(SelectedBaseDrive))
+        {
+            OnPropertyChanged(nameof(HasBaseSnapshots));
+            OnPropertyChanged(nameof(HasNoBaseSnapshots));
+            return;
+        }
+
+        var baseDrive = NormalizeDrivePath(SelectedBaseDrive);
+
+        foreach (var snapshot in AvailableSnapshots.Where(s => string.Equals(NormalizeDrivePath(s.DrivePath), baseDrive, StringComparison.OrdinalIgnoreCase)))
+        {
+            FilteredSnapshots.Add(snapshot);
+        }
+
+        if (FilteredSnapshots.Count > 0)
+        {
+            SnapshotBefore = FilteredSnapshots[0];
+        }
+
+        OnPropertyChanged(nameof(HasBaseSnapshots));
+        OnPropertyChanged(nameof(HasNoBaseSnapshots));
+    }
+
+    private async Task RecompareWithCurrentAsync()
+    {
+        if (SnapshotBefore is null || _currentSnapshot is null)
+        {
+            return;
+        }
+
+        ErrorMessage = null;
+        IsLoading = true;
+        await Task.Yield();
+        try
+        {
+            DiffRoot = await Task.Run(() => _diffService.Compare(SnapshotBefore, _currentSnapshot));
+            ResetExpansion(DiffRoot);
+            BuildRows();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Re-compare failed");
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void InsertSnapshotRecord(SnapshotRecord snapshot)
+    {
+        AvailableSnapshots.Insert(0, snapshot);
+
+        if (!string.IsNullOrWhiteSpace(SelectedBaseDrive)
+            && string.Equals(NormalizeDrivePath(snapshot.DrivePath), NormalizeDrivePath(SelectedBaseDrive), StringComparison.OrdinalIgnoreCase))
+        {
+            FilteredSnapshots.Insert(0, snapshot);
+            if (SnapshotBefore is null)
+            {
+                SnapshotBefore = snapshot;
+            }
+        }
+
+        OnPropertyChanged(nameof(HasBaseSnapshots));
+        OnPropertyChanged(nameof(HasNoBaseSnapshots));
+    }
+
+    private void LoadDrivesFromSnapshots(IEnumerable<SnapshotRecord> records)
+    {
+        AvailableDrives.Clear();
+        foreach (var drive in records.Select(r => NormalizeDrivePath(r.DrivePath)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            AvailableDrives.Add(drive);
+        }
+    }
+
+    private static string NormalizeDrivePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = path.TrimEnd('\\');
+        return trimmed + "\\";
+    }
+
+
+    private async Task<SnapshotRecord> BuildCurrentSnapshotAsync(string drivePath)
+    {
+        var root = await _scanService.ScanFullAsync(drivePath, progress: null, CancellationToken.None);
+        return new SnapshotRecord
+        {
+            Name = $"Escaneo {DateTime.Now:g}",
+            DrivePath = drivePath,
+            CreatedAt = DateTime.Now,
+            TotalSizeBytes = root.SizeBytes,
+            TreeJson = SnapshotService.SerializeTree(root)
+        };
     }
 }

@@ -1,8 +1,10 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+
 using Keybusy_DiskScope.Models;
 
 namespace Keybusy_DiskScope.ViewModels;
 
-public sealed class DiffRow
+public partial class DiffRow : ObservableObject
 {
     public DiffRow(DiffNode node, int depth)
     {
@@ -20,7 +22,17 @@ public sealed class DiffRow
     public bool IsExpanded
     {
         get => Node.IsExpanded;
-        set => Node.IsExpanded = value;
+        set
+        {
+            if (Node.IsExpanded == value)
+            {
+                return;
+            }
+
+            Node.IsExpanded = value;
+            OnPropertyChanged(nameof(IsExpanded));
+            OnPropertyChanged(nameof(ExpandGlyph));
+        }
     }
     public string ExpandGlyph => IsExpanded ? "\uE70D" : "\uE76C";
     public DiffStatus Status => Node.Status;
@@ -28,7 +40,8 @@ public sealed class DiffRow
     public long SizeAfter => Node.SizeAfter;
     public long SizeDelta => Node.SizeDelta;
 
-    public bool IsSelected { get; set; }
+    [ObservableProperty]
+    private bool _isSelected;
 
     public string DisplayPreviousSize => DiskNode.FormatSize(SizeBefore);
     public string DisplayCurrentSize => DiskNode.FormatSize(SizeAfter);

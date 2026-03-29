@@ -57,8 +57,11 @@ public sealed class DiffService : IDiffService
                 beforeChildren.TryGetValue(key, out var b);
                 afterChildren.TryGetValue(key,  out var a);
                 var childDiff = DiffNodes(b, a);
-                if (childDiff.Status != DiffStatus.Unchanged)
+                childDiff.Parent = node;
+                if (childDiff.Status != DiffStatus.Unchanged || childDiff.Children.Count > 0)
+                {
                     node.Children.Add(childDiff);
+                }
             }
         }
 
