@@ -112,13 +112,6 @@
                                     </Grid>
 
                                     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,12,0,0">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
-                                            <FontIcon Glyph="&#xE9CA;" />
-                                            <TextBlock Text="{x:Bind Drive.TemperatureDisplay, Mode=OneTime}" />
-                                            <TextBlock Text="·" />
-                                            <TextBlock Text="{x:Bind Drive.HealthStatus, Mode=OneTime}" Foreground="Green" />
-                                        </StackPanel>
-
                                         <Button Content="Analizar Unidad"
                                                 Command="{x:Bind AnalyzeCommand}"
                                                 CommandParameter="{x:Bind Drive}"
