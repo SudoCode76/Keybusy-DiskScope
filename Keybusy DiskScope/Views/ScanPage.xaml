@@ -70,14 +70,27 @@
                      AutomationProperties.Name="Nombre del snapshot" />
 
             <Button Grid.Column="5"
+                    x:Name="SaveSnapshotButton"
                     Command="{x:Bind ViewModel.SaveSnapshotCommand}"
                     IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"
                     AutomationProperties.Name="Guardar snapshot">
                 <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ProgressRing Width="14" Height="14"
+                                  IsActive="{x:Bind ViewModel.IsSavingSnapshot, Mode=OneWay}"
+                                  Visibility="{x:Bind ViewModel.IsSavingSnapshot, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                                  AutomationProperties.Name="Guardando snapshot" />
                     <FontIcon Glyph="&#xE74E;" />
                     <TextBlock Text="Guardar" />
                 </StackPanel>
             </Button>
+
+            <TeachingTip Target="{x:Bind SaveSnapshotButton}"
+                         Title="Snapshot guardado"
+                         Subtitle="{x:Bind ViewModel.SavedSnapshotMessage, Mode=OneWay}"
+                         IsOpen="{x:Bind ViewModel.IsSaveTipOpen, Mode=TwoWay}"
+                         ActionButtonContent="Aceptar"
+                         ActionButtonClick="SaveTip_ActionButtonClick"
+                         CloseButtonClick="SaveTip_CloseButtonClick" />
         </Grid>
 
         <!-- Results -->

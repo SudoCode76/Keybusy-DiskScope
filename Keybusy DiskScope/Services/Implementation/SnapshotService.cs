@@ -50,10 +50,72 @@ public sealed class SnapshotService : ISnapshotService
 
     // Helper: deserialize a snapshot's tree from JSON
     public static DiskNode? DeserializeTree(SnapshotRecord record)
-        => string.IsNullOrEmpty(record.TreeJson)
-            ? null
-            : JsonSerializer.Deserialize<DiskNode>(record.TreeJson);
+    {
+        if (string.IsNullOrEmpty(record.TreeJson))
+        {
+            return null;
+        }
+
+        var snapshot = JsonSerializer.Deserialize<SnapshotNode>(record.TreeJson);
+        return snapshot is null ? null : MapToDiskNode(snapshot, parent: null, depth: 0);
+    }
 
     public static string SerializeTree(DiskNode root)
-        => JsonSerializer.Serialize(root);
+    {
+        var snapshot = MapToSnapshot(root);
+        return JsonSerializer.Serialize(snapshot);
+    }
+
+    private static SnapshotNode MapToSnapshot(DiskNode node)
+    {
+        var children = new List<SnapshotNode>();
+        foreach (var child in node.Children)
+        {
+            if (child.IsPlaceholder)
+            {
+                continue;
+            }
+
+            children.Add(MapToSnapshot(child));
+        }
+
+        return new SnapshotNode
+        {
+            Name = node.Name,
+            FullPath = node.FullPath,
+            Extension = node.Extension,
+            IsDirectory = node.IsDirectory,
+            SizeBytes = node.SizeBytes,
+            FileCount = node.FileCount,
+            FolderCount = node.FolderCount,
+            LastModified = node.LastModified,
+            Children = children
+        };
+    }
+
+    private static DiskNode MapToDiskNode(SnapshotNode snapshot, DiskNode? parent, int depth)
+    {
+        var node = new DiskNode
+        {
+            Name = snapshot.Name,
+            FullPath = snapshot.FullPath,
+            Extension = snapshot.Extension,
+            IsDirectory = snapshot.IsDirectory,
+            SizeBytes = snapshot.SizeBytes,
+            FileCount = snapshot.FileCount,
+            FolderCount = snapshot.FolderCount,
+            LastModified = snapshot.LastModified,
+            Depth = depth,
+            Parent = parent,
+            HasChildren = snapshot.Children.Count > 0,
+            ChildrenLoaded = true
+        };
+
+        foreach (var child in snapshot.Children)
+        {
+            node.Children.Add(MapToDiskNode(child, node, depth + 1));
+        }
+
+        return node;
+    }
 }

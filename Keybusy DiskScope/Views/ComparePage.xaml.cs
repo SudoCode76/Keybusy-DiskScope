@@ -1,5 +1,7 @@
 using Keybusy_DiskScope.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 
 namespace Keybusy_DiskScope.Views;
 
@@ -11,6 +13,36 @@ public sealed partial class ComparePage : Page
     {
         ViewModel = App.Services.GetRequiredService<CompareViewModel>();
         InitializeComponent();
-        Loaded += async (_, _) => await ViewModel.LoadSnapshotsCommand.ExecuteAsync(null);
+        Loaded += async (_, _) =>
+        {
+            if (ViewModel.AvailableSnapshots.Count == 0)
+            {
+                await ViewModel.LoadSnapshotsCommand.ExecuteAsync(null);
+            }
+        };
+    }
+
+    private void Row_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is DiffRow row)
+        {
+            ViewModel.SelectRowCommand.Execute(row);
+        }
+    }
+
+    private void Row_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is DiffRow row)
+        {
+            ViewModel.SelectRowCommand.Execute(row);
+        }
+    }
+
+    private void DeleteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem item && item.Tag is DiffRow row)
+        {
+            ViewModel.DeleteRowCommand.Execute(row);
+        }
     }
 }

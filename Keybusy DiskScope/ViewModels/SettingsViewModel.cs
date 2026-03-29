@@ -7,6 +7,8 @@ public sealed class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
     private static readonly string[] ThemeOptions = { "Sistema", "Claro", "Oscuro" };
+    private static readonly string[] SortOptions = { "Nombre", "Tamano", "Ocupacion", "Archivos", "Ultima modificacion" };
+    private static readonly string[] SortDirectionOptions = { "Ascendente", "Descendente" };
 
     public SettingsViewModel(ISettingsService settingsService)
     {
@@ -34,6 +36,10 @@ public sealed class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<string> ThemeOptionLabels => ThemeOptions;
 
+    public IReadOnlyList<string> DefaultSortOptionLabels => SortOptions;
+
+    public IReadOnlyList<string> SortDirectionLabels => SortDirectionOptions;
+
     public int SelectedThemeIndex
     {
         get => (int)_settingsService.AppThemePreference;
@@ -54,6 +60,42 @@ public sealed class SettingsViewModel : ObservableObject
         }
     }
 
+    public int DefaultSortIndex
+    {
+        get => _settingsService.DefaultSortIndex;
+        set
+        {
+            if (value == _settingsService.DefaultSortIndex)
+            {
+                return;
+            }
+
+            if (value < 0 || value >= SortOptions.Length)
+            {
+                return;
+            }
+
+            _settingsService.DefaultSortIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int DefaultSortDirectionIndex
+    {
+        get => _settingsService.DefaultSortDescending ? 1 : 0;
+        set
+        {
+            var descending = value == 1;
+            if (descending == _settingsService.DefaultSortDescending)
+            {
+                return;
+            }
+
+            _settingsService.DefaultSortDescending = descending;
+            OnPropertyChanged();
+        }
+    }
+
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.Equals(e.PropertyName, nameof(ISettingsService.UseColoredFolderIcons), StringComparison.Ordinal))
@@ -64,6 +106,16 @@ public sealed class SettingsViewModel : ObservableObject
         if (string.Equals(e.PropertyName, nameof(ISettingsService.AppThemePreference), StringComparison.Ordinal))
         {
             OnPropertyChanged(nameof(SelectedThemeIndex));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.DefaultSortIndex), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(DefaultSortIndex));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.DefaultSortDescending), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(DefaultSortDirectionIndex));
         }
     }
 }

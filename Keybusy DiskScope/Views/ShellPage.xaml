@@ -37,6 +37,7 @@
             x:Name="NavView"
             IsBackButtonVisible="Collapsed"
             IsBackEnabled="{x:Bind ContentFrame.CanGoBack, Mode=OneTime}"
+            IsSettingsVisible="False"
             BackRequested="NavView_BackRequested"
             ItemInvoked="NavView_ItemInvoked"
             Loaded="NavView_Loaded"

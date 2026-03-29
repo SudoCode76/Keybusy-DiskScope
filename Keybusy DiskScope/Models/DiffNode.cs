@@ -9,6 +9,8 @@ public sealed class DiffNode
     public string Name { get; init; } = string.Empty;
     public bool IsDirectory { get; init; }
     public DiffStatus Status { get; init; }
+    public bool IsExpanded { get; set; }
+    public DiffNode? Parent { get; set; }
 
     public long SizeBefore { get; init; }
     public long SizeAfter { get; init; }

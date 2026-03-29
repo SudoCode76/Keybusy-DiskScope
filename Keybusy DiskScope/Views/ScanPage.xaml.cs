@@ -90,4 +90,14 @@ public sealed partial class ScanPage : Page
         args.Handled = true;
     }
 
+    private void SaveTip_ActionButtonClick(TeachingTip sender, object args)
+    {
+        ViewModel.IsSaveTipOpen = false;
+    }
+
+    private void SaveTip_CloseButtonClick(TeachingTip sender, object args)
+    {
+        ViewModel.IsSaveTipOpen = false;
+    }
+
 }

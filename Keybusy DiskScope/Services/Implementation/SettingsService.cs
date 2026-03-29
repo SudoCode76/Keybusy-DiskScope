@@ -10,11 +10,15 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
 {
     private const string UseColoredFolderIconsKey = "UseColoredFolderIcons";
     private const string AppThemePreferenceKey = "AppThemePreference";
+    private const string DefaultSortIndexKey = "DefaultSortIndex";
+    private const string DefaultSortDescendingKey = "DefaultSortDescending";
 
     public SettingsService()
     {
         _useColoredFolderIcons = ReadBool(UseColoredFolderIconsKey, defaultValue: false);
         _appThemePreference = ReadEnum(AppThemePreferenceKey, Models.AppThemePreference.System);
+        _defaultSortIndex = ReadInt(DefaultSortIndexKey, defaultValue: 1);
+        _defaultSortDescending = ReadBool(DefaultSortDescendingKey, defaultValue: true);
         UpdateFolderIconBrush(_useColoredFolderIcons);
     }
 
@@ -23,6 +27,12 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
 
     [ObservableProperty]
     private Models.AppThemePreference _appThemePreference;
+
+    [ObservableProperty]
+    private int _defaultSortIndex;
+
+    [ObservableProperty]
+    private bool _defaultSortDescending;
 
     partial void OnUseColoredFolderIconsChanged(bool value)
     {
@@ -33,6 +43,16 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     partial void OnAppThemePreferenceChanged(Models.AppThemePreference value)
     {
         WriteEnum(AppThemePreferenceKey, value);
+    }
+
+    partial void OnDefaultSortIndexChanged(int value)
+    {
+        WriteInt(DefaultSortIndexKey, value);
+    }
+
+    partial void OnDefaultSortDescendingChanged(bool value)
+    {
+        WriteBool(DefaultSortDescendingKey, value);
     }
 
     private static void UpdateFolderIconBrush(bool useColored)
@@ -68,6 +88,17 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
         return defaultValue;
     }
 
+    private static int ReadInt(string key, int defaultValue)
+    {
+        var settings = ApplicationData.Current.LocalSettings;
+        if (settings.Values.TryGetValue(key, out var value) && value is int intValue)
+        {
+            return intValue;
+        }
+
+        return defaultValue;
+    }
+
     private static TEnum ReadEnum<TEnum>(string key, TEnum defaultValue) where TEnum : struct
     {
         var settings = ApplicationData.Current.LocalSettings;
@@ -88,6 +119,12 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     }
 
     private static void WriteBool(string key, bool value)
+    {
+        var settings = ApplicationData.Current.LocalSettings;
+        settings.Values[key] = value;
+    }
+
+    private static void WriteInt(string key, int value)
     {
         var settings = ApplicationData.Current.LocalSettings;
         settings.Values[key] = value;

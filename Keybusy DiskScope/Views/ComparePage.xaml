@@ -1,80 +1,218 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Keybusy_DiskScope.Views.ComparePage"
+    x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:Keybusy_DiskScope.ViewModels"
     xmlns:models="using:Keybusy_DiskScope.Models"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    x:DefaultBindMode="OneTime">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*">
+    <Grid Padding="24" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
 
-        <TextBlock Grid.Row="0"
-                   Text="Comparar snapshots"
-                   Style="{ThemeResource TitleTextBlockStyle}"
-                   Margin="0,0,0,16" />
-
-        <!-- Snapshot selectors -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="16" Margin="0,0,0,12">
-
-            <StackPanel Spacing="4">
-                <TextBlock Text="Antes" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                <ComboBox ItemsSource="{x:Bind ViewModel.AvailableSnapshots}"
-                          SelectedItem="{x:Bind ViewModel.SnapshotBefore, Mode=TwoWay}"
-                          MinWidth="220"
-                          AutomationProperties.Name="Snapshot anterior">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="models:SnapshotRecord">
-                            <TextBlock Text="{x:Bind Name}" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-            </StackPanel>
-
-            <StackPanel Spacing="4">
-                <TextBlock Text="Después" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                <ComboBox ItemsSource="{x:Bind ViewModel.AvailableSnapshots}"
-                          SelectedItem="{x:Bind ViewModel.SnapshotAfter, Mode=TwoWay}"
-                          MinWidth="220"
-                          AutomationProperties.Name="Snapshot posterior">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="models:SnapshotRecord">
-                            <TextBlock Text="{x:Bind Name}" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-            </StackPanel>
-
-            <Button Command="{x:Bind ViewModel.RunCompareCommand}"
-                    VerticalAlignment="Bottom"
-                    AutomationProperties.Name="Comparar snapshots">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE8A9;" />
-                    <TextBlock Text="Comparar" />
-                </StackPanel>
-            </Button>
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="Comparacion de Analisis" Style="{ThemeResource TitleTextBlockStyle}" />
+            <TextBlock Text="Descubre que archivos han consumido tu espacio a lo largo del tiempo."
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </StackPanel>
 
-        <InfoBar Grid.Row="2"
-                 IsOpen="{x:Bind ViewModel.HasError, Mode=OneTime}"
-                 Severity="Error"
-                 Title="Error en la comparación"
-                 Message="{x:Bind ViewModel.ErrorMessage, Mode=OneTime}"
-                 IsClosable="True"
-                 Margin="0,0,0,12" />
-
-        <!-- Diff tree placeholder (UI will be designed by owner) -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="1"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                CornerRadius="8"
+                CornerRadius="12"
                 Padding="16">
-            <TextBlock Text="Selecciona dos snapshots y pulsa Comparar"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center" />
+            <Grid ColumnDefinitions="*,Auto,*,Auto,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Analisis Base (A)" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind ViewModel.AvailableSnapshots}"
+                              SelectedItem="{x:Bind ViewModel.SnapshotBefore, Mode=TwoWay}"
+                              MinWidth="260"
+                              AutomationProperties.Name="Snapshot base">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:SnapshotRecord">
+                                <TextBlock Text="{x:Bind Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Width="36" Height="36"
+                        CornerRadius="18"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="vs" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+
+                <StackPanel Grid.Column="2" Spacing="6">
+                    <TextBlock Text="Analisis Actual (B)" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ComboBox ItemsSource="{x:Bind ViewModel.AvailableSnapshots}"
+                              SelectedItem="{x:Bind ViewModel.SnapshotAfter, Mode=TwoWay}"
+                              MinWidth="260"
+                              AutomationProperties.Name="Snapshot actual">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:SnapshotRecord">
+                                <TextBlock Text="{x:Bind Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <Button Grid.Column="3"
+                        Command="{x:Bind ViewModel.RunCompareCommand}"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Comparar snapshots">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE8A9;" />
+                        <TextBlock Text="Comparar" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="4"
+                        Command="{x:Bind ViewModel.AnalyzeCurrentCommand}"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Analizar ahora">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE768;" />
+                        <TextBlock Text="Analizar ahora" />
+                    </StackPanel>
+                </Button>
+            </Grid>
         </Border>
+
+        <Border Grid.Row="2"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="12"
+                Padding="12">
+            <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="12">
+                <TextBox Grid.Column="0"
+                         Width="260"
+                         PlaceholderText="Buscar archivos..."
+                         Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
+                         AutomationProperties.Name="Buscar archivos" />
+
+                <ComboBox Grid.Column="1"
+                          Width="160"
+                          ItemsSource="{x:Bind ViewModel.FilterOptions}"
+                          SelectedIndex="{x:Bind ViewModel.SelectedFilterIndex, Mode=TwoWay}"
+                          AutomationProperties.Name="Filtro de cambios" />
+
+                <ComboBox Grid.Column="2"
+                          Width="200"
+                          ItemsSource="{x:Bind ViewModel.SortOptions}"
+                          SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
+                          AutomationProperties.Name="Orden de cambios" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" RowDefinitions="Auto,*" RowSpacing="8">
+            <InfoBar
+                IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                Severity="Error"
+                Title="Error en la comparacion"
+                Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                IsClosable="True" />
+
+            <Border Grid.Row="1"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="12"
+                    Padding="8">
+                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                    <Border Grid.RowSpan="2"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="12"
+                            Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                            <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                                          Width="56" Height="56"
+                                          AutomationProperties.Name="Cargando comparacion" />
+                            <TextBlock Text="Cargando snapshots..."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,140,140,120,120" Padding="8,4"
+                          Visibility="{x:Bind ViewModel.IsNotLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <TextBlock Text="Nombre" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Tamano anterior" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="2" Text="Tamano actual" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="3" Text="Diferencia" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="4" Text="Estado" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Visibility="{x:Bind ViewModel.IsNotLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <controls:ItemsRepeater ItemsSource="{x:Bind ViewModel.DisplayRows}">
+                            <controls:ItemsRepeater.Layout>
+                                <controls:StackLayout Orientation="Vertical" />
+                            </controls:ItemsRepeater.Layout>
+                            <controls:ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DiffRow">
+                                    <Border Background="{x:Bind IsSelected, Converter={StaticResource BoolToSelectionBrushConverter}, Mode=OneTime}"
+                                            CornerRadius="6"
+                                            PointerPressed="Row_PointerPressed"
+                                            RightTapped="Row_RightTapped">
+                                        <Border.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Eliminar"
+                                                                Tag="{x:Bind}"
+                                                                Click="DeleteMenuItem_Click"
+                                                                IsEnabled="{x:Bind CanDelete}"
+                                                                AutomationProperties.Name="Eliminar elemento" />
+                                            </MenuFlyout>
+                                        </Border.ContextFlyout>
+                                        <Grid ColumnDefinitions="*,140,140,120,120" Padding="8,4">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                                        Margin="{x:Bind Depth, Converter={StaticResource DepthToThicknessConverter}, ConverterParameter=20, Mode=OneTime}">
+                                                <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
+                                                        CommandParameter="{x:Bind}"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="0"
+                                                        Width="20"
+                                                        IsEnabled="{x:Bind HasChildren}"
+                                                        AutomationProperties.Name="Expandir o contraer carpeta">
+                                                    <FontIcon Glyph="{x:Bind ExpandGlyph}"
+                                                              FontSize="12"
+                                                              Opacity="0.65"
+                                                              Visibility="{x:Bind HasChildren, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                </Button>
+                                                <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
+                                                        CommandParameter="{x:Bind}"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="0"
+                                                        AutomationProperties.Name="Abrir elemento">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <FontIcon Glyph="&#xE8B7;"
+                                                                  Visibility="{x:Bind IsDirectory, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                        <FontIcon Glyph="&#xE8A5;"
+                                                                  Visibility="{x:Bind IsFile, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                        <TextBlock Text="{x:Bind Name}" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{x:Bind DisplayPreviousSize}" HorizontalAlignment="Right" />
+                                            <TextBlock Grid.Column="2" Text="{x:Bind DisplayCurrentSize}" HorizontalAlignment="Right" />
+                                            <TextBlock Grid.Column="3" Text="{x:Bind DisplayDelta}" HorizontalAlignment="Right" />
+                                            <Border Grid.Column="4"
+                                                    Padding="6,2"
+                                                    CornerRadius="10"
+                                                    Background="{x:Bind Status, Converter={StaticResource DiffStatusToBrushConverter}}">
+                                                <TextBlock Text="{x:Bind StatusLabel}" HorizontalAlignment="Center" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </controls:ItemsRepeater.ItemTemplate>
+                        </controls:ItemsRepeater>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
 
     </Grid>
 </Page>

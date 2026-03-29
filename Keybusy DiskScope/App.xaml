@@ -18,6 +18,7 @@
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
             <converters:DepthToThicknessConverter x:Key="DepthToThicknessConverter" />
             <converters:BoolToSelectionBrushConverter x:Key="BoolToSelectionBrushConverter" />
+            <converters:DiffStatusToBrushConverter x:Key="DiffStatusToBrushConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -1,6 +1,8 @@
+using System.ComponentModel;
 using System.Text.Json;
 
 using Keybusy_DiskScope.Services;
+using Keybusy_DiskScope.Services.Implementation;
 
 namespace Keybusy_DiskScope.ViewModels;
 
@@ -9,10 +11,13 @@ public partial class ScanViewModel : ObservableObject
     private readonly IScanService _scanService;
     private readonly ISnapshotService _snapshotService;
     private readonly IFileDeleteService _fileDeleteService;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<ScanViewModel> _logger;
     private CancellationTokenSource? _scanCts;
+    private bool _suppressDefaultSort;
 
     [ObservableProperty] private bool _isScanning;
+    [ObservableProperty] private bool _isSavingSnapshot;
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string _statusText = string.Empty;
     [ObservableProperty] private double _progressValue;
@@ -20,6 +25,8 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private DiskNode? _rootNode;
     [ObservableProperty] private DiskNode? _selectedNode;
     [ObservableProperty] private string _snapshotName = string.Empty;
+    [ObservableProperty] private string _savedSnapshotMessage = string.Empty;
+    [ObservableProperty] private bool _isSaveTipOpen;
     [ObservableProperty] private string _scanTitle = "Analisis";
     [ObservableProperty] private string _scanSummary = string.Empty;
     [ObservableProperty] private bool _hasResults;
@@ -53,15 +60,44 @@ public partial class ScanViewModel : ObservableObject
         IScanService scanService,
         ISnapshotService snapshotService,
         IFileDeleteService fileDeleteService,
+        ISettingsService settingsService,
         ILogger<ScanViewModel> logger)
     {
         _scanService = scanService;
         _snapshotService = snapshotService;
         _fileDeleteService = fileDeleteService;
+        _settingsService = settingsService;
         _logger = logger;
 
         StatusText = "Seleccione una unidad y pulse Escanear.";
-        SortDescending = true;
+        ApplyDefaultSort();
+        if (_settingsService is INotifyPropertyChanged notifier)
+        {
+            notifier.PropertyChanged += OnSettingsChanged;
+        }
+    }
+
+    private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.DefaultSortIndex), StringComparison.Ordinal)
+            || string.Equals(e.PropertyName, nameof(ISettingsService.DefaultSortDescending), StringComparison.Ordinal))
+        {
+            ApplyDefaultSort();
+        }
+    }
+
+    private void ApplyDefaultSort()
+    {
+        var index = _settingsService.DefaultSortIndex;
+        if (index < 0 || index >= SortOptions.Count)
+        {
+            index = 0;
+        }
+
+        _suppressDefaultSort = true;
+        SelectedSortIndex = index;
+        SortDescending = _settingsService.DefaultSortDescending;
+        _suppressDefaultSort = false;
     }
 
     public void LoadDrives()
@@ -153,24 +189,33 @@ public partial class ScanViewModel : ObservableObject
     {
         if (RootNode is null || string.IsNullOrWhiteSpace(SnapshotName)) return;
 
+        IsSavingSnapshot = true;
+        await Task.Yield();
         try
         {
+            var treeJson = await Task.Run(() => SnapshotService.SerializeTree(RootNode));
             var record = new SnapshotRecord
             {
                 Name          = SnapshotName,
                 DrivePath     = SelectedDrive ?? string.Empty,
                 CreatedAt     = DateTime.Now,
                 TotalSizeBytes = RootNode.SizeBytes,
-                TreeJson      = JsonSerializer.Serialize(RootNode)
+                TreeJson      = treeJson
             };
 
             await _snapshotService.SaveAsync(record);
-            StatusText = $"Snapshot '{SnapshotName}' guardado.";
+            SavedSnapshotMessage = $"Snapshot '{SnapshotName}' guardado.";
+            StatusText = SavedSnapshotMessage;
+            IsSaveTipOpen = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save snapshot");
             ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsSavingSnapshot = false;
         }
     }
 
@@ -199,7 +244,10 @@ public partial class ScanViewModel : ObservableObject
 
     partial void OnSelectedSortIndexChanged(int value)
     {
-        SortDescending = true;
+        if (!_suppressDefaultSort)
+        {
+            SortDescending = true;
+        }
         ApplyDisplayNodes();
         NotifySortIndicators();
     }
@@ -427,8 +475,15 @@ public partial class ScanViewModel : ObservableObject
             return;
         }
 
-        node.IsExpanded = !node.IsExpanded;
-        if (node.IsExpanded && !node.ChildrenLoaded)
+        if (node.IsExpanded)
+        {
+            node.IsExpanded = false;
+            RemoveDescendantsFromDisplay(node);
+            return;
+        }
+
+        node.IsExpanded = true;
+        if (!node.ChildrenLoaded)
         {
             try
             {
@@ -445,10 +500,11 @@ public partial class ScanViewModel : ObservableObject
             catch (Exception ex)
             {
                 ErrorMessage = ex.Message;
+                return;
             }
         }
 
-        ApplyDisplayNodes();
+        InsertChildrenIntoDisplay(node);
     }
 
     private void ApplyDisplayNodes()
@@ -476,6 +532,64 @@ public partial class ScanViewModel : ObservableObject
         RootDisplayLabel = $"Espacio total analizado: {RootDisplaySize}";
 
         SortLoadedChildren(RootNode);
+    }
+
+    private void InsertChildrenIntoDisplay(DiskNode node)
+    {
+        var parentIndex = FindNodeIndex(node);
+        if (parentIndex < 0)
+        {
+            ApplyDisplayNodes();
+            return;
+        }
+
+        var children = FilterAndSortNodes(node.Children).ToList();
+        var insertIndex = parentIndex + 1;
+        InsertFlattenedNodes(children, ref insertIndex);
+    }
+
+    private void InsertFlattenedNodes(IEnumerable<DiskNode> nodes, ref int insertIndex)
+    {
+        foreach (var child in nodes)
+        {
+            DisplayNodes.Insert(insertIndex, child);
+            insertIndex += 1;
+
+            if (child.IsDirectory && child.IsExpanded && child.ChildrenLoaded)
+            {
+                var grandchildren = FilterAndSortNodes(child.Children).ToList();
+                InsertFlattenedNodes(grandchildren, ref insertIndex);
+            }
+        }
+    }
+
+    private void RemoveDescendantsFromDisplay(DiskNode node)
+    {
+        var parentIndex = FindNodeIndex(node);
+        if (parentIndex < 0)
+        {
+            ApplyDisplayNodes();
+            return;
+        }
+
+        var index = parentIndex + 1;
+        while (index < DisplayNodes.Count && DisplayNodes[index].Depth > node.Depth)
+        {
+            DisplayNodes.RemoveAt(index);
+        }
+    }
+
+    private int FindNodeIndex(DiskNode node)
+    {
+        for (var i = 0; i < DisplayNodes.Count; i += 1)
+        {
+            if (ReferenceEquals(DisplayNodes[i], node))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private void AddFlattenedNode(DiskNode node)
