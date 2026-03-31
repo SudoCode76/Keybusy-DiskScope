@@ -23,7 +23,7 @@
 
         <!-- Compact top bar -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
               ColumnSpacing="10"
               VerticalAlignment="Center">
             <TextBlock Grid.Column="0"
@@ -36,16 +36,7 @@
                       SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
                       AutomationProperties.Name="Ordenar por" />
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                <CheckBox Content="Solo carpetas"
-                          IsChecked="{x:Bind ViewModel.FilterDirectoriesOnly, Mode=TwoWay}"
-                          AutomationProperties.Name="Filtrar solo carpetas" />
-                <CheckBox Content=">= 1 GB"
-                          IsChecked="{x:Bind ViewModel.FilterLargeOnly, Mode=TwoWay}"
-                          AutomationProperties.Name="Filtrar solo elementos grandes" />
-            </StackPanel>
-
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
                 <Button Command="{x:Bind ViewModel.StartScanCommand}"
                         AutomationProperties.Name="Iniciar escaneo">
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -63,7 +54,7 @@
                 </Button>
             </StackPanel>
 
-            <Border Grid.Column="4"
+            <Border Grid.Column="3"
                     Background="{ThemeResource AccentFillColorSecondaryBrush}"
                     CornerRadius="8"
                     Padding="10,6"
@@ -73,13 +64,13 @@
                            ToolTipService.ToolTip="{x:Bind ViewModel.ScanEngineDetail, Mode=OneWay}" />
             </Border>
 
-            <TextBox Grid.Column="5"
+            <TextBox Grid.Column="4"
                      Width="200"
                      Text="{x:Bind ViewModel.SnapshotName, Mode=TwoWay}"
                      PlaceholderText="Nombre del snapshot"
                      AutomationProperties.Name="Nombre del snapshot" />
 
-            <Button Grid.Column="6"
+            <Button Grid.Column="5"
                     x:Name="SaveSnapshotButton"
                     Command="{x:Bind ViewModel.SaveSnapshotCommand}"
                     IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"
@@ -135,7 +126,6 @@
                             <ColumnDefinition Width="{x:Bind ViewModel.ShowSizeColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=140}" />
                             <ColumnDefinition Width="{x:Bind ViewModel.ShowPercentColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=60}" />
                             <ColumnDefinition Width="{x:Bind ViewModel.ShowFilesColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=90}" />
-                            <ColumnDefinition Width="{x:Bind ViewModel.ShowModifiedColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=170}" />
                         </Grid.ColumnDefinitions>
 
                         <Button Grid.Column="0"
@@ -197,21 +187,6 @@
                             </StackPanel>
                         </Button>
 
-                        <Button Grid.Column="4"
-                                Command="{x:Bind ViewModel.SortByCommand}"
-                                CommandParameter="{x:Bind ViewModel.ModifiedSortIndex, Mode=OneTime}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="0"
-                                HorizontalAlignment="Right"
-                                AutomationProperties.Name="Ordenar por modificado"
-                                Visibility="{x:Bind ViewModel.ShowModifiedColumn, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                                <TextBlock Text="Modificado" FontWeight="SemiBold" />
-                                <FontIcon Glyph="{x:Bind ViewModel.ModifiedSortGlyph}"
-                                          Visibility="{x:Bind ViewModel.IsModifiedSort, Converter={StaticResource BoolToVisibilityConverter}}" />
-                            </StackPanel>
-                        </Button>
                     </Grid>
                 </Border>
 
@@ -237,6 +212,7 @@
                                             <MenuFlyoutItem Text="Eliminar"
                                                             Tag="{x:Bind}"
                                                             Click="DeleteMenuItem_Click"
+                                                            IsEnabled="{x:Bind IsActionable, Mode=OneWay}"
                                                             AutomationProperties.Name="Eliminar elemento" />
                                         </MenuFlyout>
                                     </Border.ContextFlyout>
@@ -252,7 +228,6 @@
                                         <ColumnDefinition Width="{Binding ElementName=Root, Path=ViewModel.ShowSizeColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=140}" />
                                         <ColumnDefinition Width="{Binding ElementName=Root, Path=ViewModel.ShowPercentColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=60}" />
                                         <ColumnDefinition Width="{Binding ElementName=Root, Path=ViewModel.ShowFilesColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=90}" />
-                                        <ColumnDefinition Width="{Binding ElementName=Root, Path=ViewModel.ShowModifiedColumn, Converter={StaticResource BoolToGridLengthConverter}, ConverterParameter=170}" />
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Orientation="Horizontal"
@@ -300,10 +275,6 @@
                                                Text="{x:Bind DisplayFileCount}"
                                                HorizontalAlignment="Right"
                                                Visibility="{Binding ElementName=Root, Path=ViewModel.ShowFilesColumn, Converter={StaticResource BoolToVisibilityConverter}}" />
-                                    <TextBlock Grid.Column="4"
-                                               Text="{x:Bind DisplayLastModified}"
-                                               HorizontalAlignment="Right"
-                                               Visibility="{Binding ElementName=Root, Path=ViewModel.ShowModifiedColumn, Converter={StaticResource BoolToVisibilityConverter}}" />
                                 </Grid>
                             </Border>
                             </DataTemplate>

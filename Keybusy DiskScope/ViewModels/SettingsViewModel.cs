@@ -7,7 +7,7 @@ public sealed class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
     private static readonly string[] ThemeOptions = { "Sistema", "Claro", "Oscuro" };
-    private static readonly string[] SortOptions = { "Nombre", "Tamano", "Ocupacion", "Archivos", "Ultima modificacion" };
+    private static readonly string[] SortOptions = { "Nombre", "Tamano", "Ocupacion", "Archivos" };
     private static readonly string[] SortDirectionOptions = { "Ascendente", "Descendente" };
 
     public SettingsViewModel(ISettingsService settingsService)

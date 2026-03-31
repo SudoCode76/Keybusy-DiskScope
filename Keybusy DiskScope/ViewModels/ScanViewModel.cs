@@ -15,6 +15,7 @@ public partial class ScanViewModel : ObservableObject
     private readonly ILogger<ScanViewModel> _logger;
     private CancellationTokenSource? _scanCts;
     private bool _suppressDefaultSort;
+    private readonly HashSet<string> _expandedFileGroups = new(StringComparer.OrdinalIgnoreCase);
 
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private bool _isSavingSnapshot;
@@ -35,12 +36,9 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private string _rootDisplayLabel = string.Empty;
     [ObservableProperty] private int _selectedSortIndex;
     [ObservableProperty] private bool _sortDescending;
-    [ObservableProperty] private bool? _filterDirectoriesOnly;
-    [ObservableProperty] private bool? _filterLargeOnly;
     [ObservableProperty] private bool _showSizeColumn = true;
     [ObservableProperty] private bool _showPercentColumn = true;
     [ObservableProperty] private bool _showFilesColumn = true;
-    [ObservableProperty] private bool _showModifiedColumn = true;
     [ObservableProperty] private string _scanEngineLabel = "Motor: pendiente";
     [ObservableProperty] private string _scanEngineDetail = string.Empty;
 
@@ -54,8 +52,7 @@ public partial class ScanViewModel : ObservableObject
         "Nombre",
         "Tamano",
         "Ocupacion",
-        "Archivos",
-        "Ultima modificacion"
+        "Archivos"
     };
 
     public ScanViewModel(
@@ -158,6 +155,7 @@ public partial class ScanViewModel : ObservableObject
 
             RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, scanToken);
             scanToken.ThrowIfCancellationRequested();
+            _expandedFileGroups.Clear();
             ApplySizePercentages(RootNode);
             UpdateScanEngineStatus();
 
@@ -260,12 +258,6 @@ public partial class ScanViewModel : ObservableObject
         NotifySortIndicators();
     }
 
-    partial void OnFilterDirectoriesOnlyChanged(bool? value)
-        => ApplyDisplayNodes();
-
-    partial void OnFilterLargeOnlyChanged(bool? value)
-        => ApplyDisplayNodes();
-
     partial void OnIsScanningChanged(bool value)
         => OnPropertyChanged(nameof(IsNotScanning));
 
@@ -318,19 +310,16 @@ public partial class ScanViewModel : ObservableObject
     public bool IsSizeSort => SelectedSortIndex == 1;
     public bool IsPercentSort => SelectedSortIndex == 2;
     public bool IsFilesSort => SelectedSortIndex == 3;
-    public bool IsModifiedSort => SelectedSortIndex == 4;
 
     public int NameSortIndex => 0;
     public int SizeSortIndex => 1;
     public int PercentSortIndex => 2;
     public int FilesSortIndex => 3;
-    public int ModifiedSortIndex => 4;
 
     public string NameSortGlyph => IsNameSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
     public string SizeSortGlyph => IsSizeSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
     public string PercentSortGlyph => IsPercentSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
     public string FilesSortGlyph => IsFilesSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
-    public string ModifiedSortGlyph => IsModifiedSort ? (SortDescending ? "\uE70E" : "\uE70D") : string.Empty;
 
     private void NotifySortIndicators()
     {
@@ -338,12 +327,10 @@ public partial class ScanViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSizeSort));
         OnPropertyChanged(nameof(IsPercentSort));
         OnPropertyChanged(nameof(IsFilesSort));
-        OnPropertyChanged(nameof(IsModifiedSort));
         OnPropertyChanged(nameof(NameSortGlyph));
         OnPropertyChanged(nameof(SizeSortGlyph));
         OnPropertyChanged(nameof(PercentSortGlyph));
         OnPropertyChanged(nameof(FilesSortGlyph));
-        OnPropertyChanged(nameof(ModifiedSortGlyph));
     }
 
     public Task<IReadOnlyList<DiskNode>> LoadChildrenAsync(DiskNode node, CancellationToken ct)
@@ -358,7 +345,7 @@ public partial class ScanViewModel : ObservableObject
             ApplyDepth(child, depth);
             child.Parent = node;
         }
-        return FilterAndSortNodes(children).ToList();
+        return FilterAndSortNodes(children, allowFileGrouping: true).ToList();
     }
 
     private static void ApplyDepth(DiskNode node, int depth)
@@ -396,7 +383,7 @@ public partial class ScanViewModel : ObservableObject
         }
 
         SelectNode(node);
-        if (!node.IsDirectory)
+        if (!node.IsDirectory && !node.IsFileGroup)
         {
             return;
         }
@@ -407,7 +394,7 @@ public partial class ScanViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteNodeAsync(DiskNode? node)
     {
-        if (node is null)
+        if (node is null || node.IsFileGroup)
         {
             return;
         }
@@ -425,7 +412,7 @@ public partial class ScanViewModel : ObservableObject
 
     private Task DeleteSelectedInternalAsync(bool permanent)
     {
-        if (SelectedNode is null)
+        if (SelectedNode is null || SelectedNode.IsFileGroup)
         {
             return Task.CompletedTask;
         }
@@ -472,7 +459,7 @@ public partial class ScanViewModel : ObservableObject
     [RelayCommand]
     private async Task ToggleExpandAsync(DiskNode? node)
     {
-        if (node is null || !node.IsDirectory)
+        if (node is null || (!node.IsDirectory && !node.IsFileGroup))
         {
             return;
         }
@@ -480,11 +467,23 @@ public partial class ScanViewModel : ObservableObject
         if (node.IsExpanded)
         {
             node.IsExpanded = false;
+            if (node.IsFileGroup)
+            {
+                _expandedFileGroups.Remove(node.FullPath);
+            }
             RemoveDescendantsFromDisplay(node);
+            if (node.IsFileGroup)
+            {
+                ResetGroupedChildrenDepth(node);
+            }
             return;
         }
 
         node.IsExpanded = true;
+        if (node.IsFileGroup)
+        {
+            _expandedFileGroups.Add(node.FullPath);
+        }
         if (!node.ChildrenLoaded)
         {
             try
@@ -522,7 +521,7 @@ public partial class ScanViewModel : ObservableObject
             return;
         }
 
-        var nodes = FilterAndSortNodes(RootNode.Children).ToList();
+        var nodes = FilterAndSortNodes(RootNode.Children, allowFileGrouping: true).ToList();
         foreach (var node in nodes)
         {
             AddFlattenedNode(node);
@@ -545,7 +544,14 @@ public partial class ScanViewModel : ObservableObject
             return;
         }
 
-        var children = FilterAndSortNodes(node.Children).ToList();
+        var children = FilterAndSortNodes(node.Children, allowFileGrouping: !node.IsFileGroup).ToList();
+        if (node.IsFileGroup)
+        {
+            foreach (var child in children)
+            {
+                child.Depth = node.Depth + 1;
+            }
+        }
         var insertIndex = parentIndex + 1;
         InsertFlattenedNodes(children, ref insertIndex);
     }
@@ -557,9 +563,16 @@ public partial class ScanViewModel : ObservableObject
             DisplayNodes.Insert(insertIndex, child);
             insertIndex += 1;
 
-            if (child.IsDirectory && child.IsExpanded && child.ChildrenLoaded)
+            if ((child.IsDirectory || child.IsFileGroup) && child.IsExpanded && child.ChildrenLoaded)
             {
-                var grandchildren = FilterAndSortNodes(child.Children).ToList();
+                var grandchildren = FilterAndSortNodes(child.Children, allowFileGrouping: !child.IsFileGroup).ToList();
+                if (child.IsFileGroup)
+                {
+                    foreach (var grandchild in grandchildren)
+                    {
+                        grandchild.Depth = child.Depth + 1;
+                    }
+                }
                 InsertFlattenedNodes(grandchildren, ref insertIndex);
             }
         }
@@ -597,33 +610,124 @@ public partial class ScanViewModel : ObservableObject
     private void AddFlattenedNode(DiskNode node)
     {
         DisplayNodes.Add(node);
-        if (!node.IsDirectory || !node.IsExpanded || !node.ChildrenLoaded)
+        if ((!node.IsDirectory && !node.IsFileGroup) || !node.IsExpanded || !node.ChildrenLoaded)
         {
             return;
         }
 
-        var children = FilterAndSortNodes(node.Children).ToList();
+        var children = FilterAndSortNodes(node.Children, allowFileGrouping: !node.IsFileGroup).ToList();
+        if (node.IsFileGroup)
+        {
+            foreach (var child in children)
+            {
+                child.Depth = node.Depth + 1;
+            }
+        }
         foreach (var child in children)
         {
             AddFlattenedNode(child);
         }
     }
 
-    private IEnumerable<DiskNode> FilterAndSortNodes(IEnumerable<DiskNode> nodes)
+    private IEnumerable<DiskNode> FilterAndSortNodes(IEnumerable<DiskNode> nodes, bool allowFileGrouping)
+        => SortNodes(allowFileGrouping ? GroupFilesForDisplay(nodes) : nodes);
+
+    private IReadOnlyList<DiskNode> GroupFilesForDisplay(IEnumerable<DiskNode> nodes)
     {
-        IEnumerable<DiskNode> filtered = nodes;
+        var siblingDepth = 0;
+        var hasDepth = false;
+        var placeholders = new List<DiskNode>();
+        var directories = new List<DiskNode>();
+        var files = new List<DiskNode>();
 
-        if (FilterDirectoriesOnly == true)
+        foreach (var node in nodes)
         {
-            filtered = filtered.Where(n => n.IsDirectory);
+            if (node.IsPlaceholder)
+            {
+                placeholders.Add(node);
+                continue;
+            }
+
+            if (!hasDepth)
+            {
+                siblingDepth = node.Depth;
+                hasDepth = true;
+            }
+
+            if (node.IsDirectory || node.IsFileGroup)
+            {
+                directories.Add(node);
+                continue;
+            }
+
+            files.Add(node);
         }
 
-        if (FilterLargeOnly == true)
+        var result = new List<DiskNode>(directories.Count + placeholders.Count + 1);
+        result.AddRange(directories);
+
+        if (files.Count > 1)
         {
-            filtered = filtered.Where(n => n.SizeBytes >= 1_073_741_824);
+            result.Add(CreateGroupedFilesNode(files, siblingDepth));
+        }
+        else if (files.Count == 1)
+        {
+            result.Add(files[0]);
         }
 
-        return SortNodes(filtered);
+        result.AddRange(placeholders);
+        return result;
+    }
+
+    private static void ResetGroupedChildrenDepth(DiskNode groupedNode)
+    {
+        foreach (var child in groupedNode.Children)
+        {
+            child.Depth = groupedNode.Depth;
+        }
+    }
+
+    private DiskNode CreateGroupedFilesNode(IReadOnlyList<DiskNode> files, int siblingDepth)
+    {
+        long totalSize = 0;
+        double totalPercent = 0;
+        var lastModified = DateTime.MinValue;
+
+        foreach (var file in files)
+        {
+            totalSize += file.SizeBytes;
+            totalPercent += file.SizePercent;
+            if (file.LastModified > lastModified)
+            {
+                lastModified = file.LastModified;
+            }
+        }
+
+        var representativePath = files[0].FullPath;
+        var parentPath = Path.GetDirectoryName(representativePath) ?? representativePath;
+
+        var groupedNode = new DiskNode
+        {
+            Name = $"[{files.Count:N0} Archivos]",
+            FullPath = parentPath,
+            IsDirectory = false,
+            IsFileGroup = true,
+            SizeBytes = totalSize,
+            SizePercent = Math.Clamp(totalPercent, 0, 100),
+            FileCount = files.Count,
+            LastModified = lastModified,
+            Depth = siblingDepth,
+            HasChildren = files.Count > 0,
+            ChildrenLoaded = true,
+            IsExpanded = _expandedFileGroups.Contains(parentPath)
+        };
+
+        foreach (var file in files)
+        {
+            groupedNode.Children.Add(file);
+        }
+
+        return groupedNode;
     }
 
     private IEnumerable<DiskNode> SortNodes(IEnumerable<DiskNode> nodes)
@@ -633,7 +737,6 @@ public partial class ScanViewModel : ObservableObject
             1 => SortDescending ? nodes.OrderByDescending(n => n.SizeBytes) : nodes.OrderBy(n => n.SizeBytes),
             2 => SortDescending ? nodes.OrderByDescending(n => n.SizePercent) : nodes.OrderBy(n => n.SizePercent),
             3 => SortDescending ? nodes.OrderByDescending(n => n.FileCount) : nodes.OrderBy(n => n.FileCount),
-            4 => SortDescending ? nodes.OrderByDescending(n => n.LastModified) : nodes.OrderBy(n => n.LastModified),
             _ => SortDescending
                 ? nodes.OrderByDescending(n => n.Name, StringComparer.OrdinalIgnoreCase)
                 : nodes.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)

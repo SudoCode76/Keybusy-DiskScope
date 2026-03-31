@@ -28,8 +28,8 @@
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 CornerRadius="8"
                 Padding="16">
-            <StackPanel Spacing="12">
-                <TextBlock Text="Personalizacion" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <StackPanel Spacing="14">
+                <TextBlock Text="Apariencia" Style="{ThemeResource BodyStrongTextBlockStyle}" />
 
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
                     <TextBlock Text="Color de carpetas en el analisis"
@@ -42,6 +42,47 @@
                                Text="Activa un color distintivo para las carpetas en la vista de analisis."
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="Tema de la aplicacion"
+                               FontWeight="SemiBold" />
+                    <ComboBox Grid.Column="1"
+                              Width="180"
+                              ItemsSource="{x:Bind ViewModel.ThemeOptionLabels}"
+                              SelectedIndex="{x:Bind ViewModel.SelectedThemeIndex, Mode=TwoWay}"
+                              AutomationProperties.Name="Seleccionar tema de la aplicacion" />
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Text="Elige entre claro, oscuro o seguir el tema del sistema."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <TextBlock Text="Analisis" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="Orden por defecto"
+                               FontWeight="SemiBold" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <ComboBox Width="180"
+                                  ItemsSource="{x:Bind ViewModel.DefaultSortOptionLabels}"
+                                  SelectedIndex="{x:Bind ViewModel.DefaultSortIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Seleccionar orden por defecto" />
+                        <ComboBox Width="140"
+                                  ItemsSource="{x:Bind ViewModel.SortDirectionLabels}"
+                                  SelectedIndex="{x:Bind ViewModel.DefaultSortDirectionIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Seleccionar direccion de orden" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Text="Define la columna y el sentido de orden al iniciar un analisis."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <TextBlock Text="Rendimiento" Style="{ThemeResource BodyStrongTextBlockStyle}" />
 
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
                     <TextBlock Text="Escaneo rapido NTFS (Admin)"
@@ -64,39 +105,6 @@
                     <TextBlock Grid.Row="1"
                                Grid.ColumnSpan="2"
                                Text="Si no se puede usar NTFS rapido, el analisis se cancela y no usa el modo clasico."
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
-                    <TextBlock Text="Tema de la aplicacion"
-                               FontWeight="SemiBold" />
-                    <ComboBox Grid.Column="1"
-                              Width="180"
-                              ItemsSource="{x:Bind ViewModel.ThemeOptionLabels}"
-                              SelectedIndex="{x:Bind ViewModel.SelectedThemeIndex, Mode=TwoWay}"
-                              AutomationProperties.Name="Seleccionar tema de la aplicacion" />
-                    <TextBlock Grid.Row="1"
-                               Grid.ColumnSpan="2"
-                               Text="Elige entre claro, oscuro o seguir el tema del sistema."
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
-                    <TextBlock Text="Orden por defecto"
-                               FontWeight="SemiBold" />
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                        <ComboBox Width="180"
-                                  ItemsSource="{x:Bind ViewModel.DefaultSortOptionLabels}"
-                                  SelectedIndex="{x:Bind ViewModel.DefaultSortIndex, Mode=TwoWay}"
-                                  AutomationProperties.Name="Seleccionar orden por defecto" />
-                        <ComboBox Width="140"
-                                  ItemsSource="{x:Bind ViewModel.SortDirectionLabels}"
-                                  SelectedIndex="{x:Bind ViewModel.DefaultSortDirectionIndex, Mode=TwoWay}"
-                                  AutomationProperties.Name="Seleccionar direccion de orden" />
-                    </StackPanel>
-                    <TextBlock Grid.Row="1"
-                               Grid.ColumnSpan="2"
-                               Text="Define la columna y el sentido de orden al iniciar un analisis."
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </Grid>
             </StackPanel>

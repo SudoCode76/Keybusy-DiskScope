@@ -18,12 +18,14 @@ public sealed class NtfsFastScanService : INtfsFastScanService
     private const uint FileFlagBackupSemantics = 0x02000000;
     private const uint FileAttributeDirectory = 0x00000010;
     private const uint FileAttributeReparsePoint = 0x00000400;
+    private const uint InvalidFileSize = 0xFFFFFFFF;
 
     private const uint FsctlEnumUsnData = 0x000900b3;
     private const uint FsctlQueryUsnJournal = 0x000900f4;
     private const int GetFileExInfoStandard = 0;
 
     private const int FileIdInfoClass = 18;
+    private const int FileStandardInfoClass = 1;
     private static readonly NtfsFileId NtfsRootFrn = NtfsFileId.FromUInt64(5);
 
     private readonly ILogger<NtfsFastScanService> _logger;
@@ -168,6 +170,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         };
 
         var sizeByFile = new Dictionary<NtfsFileId, long>(reachableFiles.Count);
+        var lastModifiedByFile = new Dictionary<NtfsFileId, DateTime>(reachableFiles.Count);
         var aggregateByDirectory = new Dictionary<NtfsFileId, AggregateInfo>(reachableDirs.Count);
         foreach (var directoryId in reachableDirs)
         {
@@ -176,11 +179,21 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
         currentStage = "agregacion";
         stageTimer.Restart();
-        BuildFileSizesAndCounts(reachableFiles, entries, pathCache, sizeByFile, aggregateByDirectory, rootId, rootPrefix, progress, ct);
+        BuildFileSizesAndCounts(
+            reachableFiles,
+            entries,
+            pathCache,
+            sizeByFile,
+            lastModifiedByFile,
+            aggregateByDirectory,
+            rootId,
+            rootPrefix,
+            progress,
+            ct);
         PropagateDirectoryAggregates(rootId, childrenDirs, aggregateByDirectory);
         aggregateStageMs = stageTimer.ElapsedMilliseconds;
 
-        var rootNode = CreateDirectoryNode(normalizedRoot, depth: 0);
+        var rootNode = CreateDirectoryNode(normalizedRoot, depth: 0, lastModified: TryGetPathLastWriteTime(rootPrefix));
         rootNode.ChildrenLoaded = true;
 
         currentStage = "arbol";
@@ -195,6 +208,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
             childrenFiles,
             pathCache,
             sizeByFile,
+            lastModifiedByFile,
             aggregateByDirectory,
             rootPrefix,
             ct);
@@ -400,10 +414,11 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                     {
                         var id = NtfsFileId.FromUInt64(BitConverter.ToUInt64(outBuffer, offset + 8));
                         var parent = NtfsFileId.FromUInt64(BitConverter.ToUInt64(outBuffer, offset + 16));
+                        var lastModified = DateTimeFromFileTime(BitConverter.ToInt64(outBuffer, offset + 32));
                         var attributes = BitConverter.ToUInt32(outBuffer, offset + 52);
                         var nameLength = BitConverter.ToUInt16(outBuffer, offset + 56);
                         var nameOffset = BitConverter.ToUInt16(outBuffer, offset + 58);
-                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, attributes, nameLength, nameOffset);
+                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, lastModified, attributes, nameLength, nameOffset);
                     }
                     else if (majorVersion == 3 && recordLength >= 76)
                     {
@@ -415,10 +430,11 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                             BitConverter.ToUInt64(outBuffer, offset + 24),
                             BitConverter.ToUInt64(outBuffer, offset + 32));
 
+                        var lastModified = DateTimeFromFileTime(BitConverter.ToInt64(outBuffer, offset + 48));
                         var attributes = BitConverter.ToUInt32(outBuffer, offset + 68);
                         var nameLength = BitConverter.ToUInt16(outBuffer, offset + 72);
                         var nameOffset = BitConverter.ToUInt16(outBuffer, offset + 74);
-                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, attributes, nameLength, nameOffset);
+                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, lastModified, attributes, nameLength, nameOffset);
                     }
 
                     offset += recordLength;
@@ -438,6 +454,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         int recordLength,
         NtfsFileId id,
         NtfsFileId parent,
+        DateTime lastModified,
         uint attributes,
         ushort nameLength,
         ushort nameOffset)
@@ -459,7 +476,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
             return;
         }
 
-        entries[id] = new UsnEntry(id, parent, name, (attributes & FileAttributeDirectory) != 0);
+        entries[id] = new UsnEntry(id, parent, name, (attributes & FileAttributeDirectory) != 0, lastModified);
     }
 
     private static void BuildChildMaps(
@@ -650,6 +667,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
         IDictionary<NtfsFileId, string> pathCache,
         IDictionary<NtfsFileId, long> sizeByFile,
+        IDictionary<NtfsFileId, DateTime> lastModifiedByFile,
         IDictionary<NtfsFileId, AggregateInfo> aggregateByDirectory,
         NtfsFileId rootId,
         string rootPrefix,
@@ -657,7 +675,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         CancellationToken ct)
     {
         var fileWorkItems = BuildFileWorkItems(reachableFiles, entries, pathCache, rootId, rootPrefix, ct);
-        var sizes = new long[fileWorkItems.Count];
+        var metadataByIndex = new FileMetadata[fileWorkItems.Count];
 
         var totalScanned = 0L;
         var lastReportMs = 0L;
@@ -674,8 +692,9 @@ public sealed class NtfsFastScanService : INtfsFastScanService
             parallelOptions.CancellationToken.ThrowIfCancellationRequested();
 
             var item = fileWorkItems[index];
-            var size = TryGetFileSize(item.Path);
-            sizes[index] = size;
+            var metadata = GetFileMetadata(item.Path);
+            metadataByIndex[index] = metadata;
+            var size = metadata.SizeBytes;
 
             var scanned = Interlocked.Add(ref totalScanned, size);
 
@@ -705,10 +724,16 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
         for (var i = 0; i < fileWorkItems.Count; i += 1)
         {
-            sizeByFile[fileWorkItems[i].FileId] = sizes[i];
+            var item = fileWorkItems[i];
+            var metadata = metadataByIndex[i];
+            sizeByFile[item.FileId] = metadata.SizeBytes;
+            if (metadata.LastModified != default)
+            {
+                lastModifiedByFile[item.FileId] = metadata.LastModified;
+            }
         }
 
-        progress?.Report((Interlocked.Read(ref totalScanned), rootPrefix));
+        progress?.Report((BytesScanned: Interlocked.Read(ref totalScanned), CurrentPath: rootPrefix));
     }
 
     private static List<FileWorkItem> BuildFileWorkItems(
@@ -813,6 +838,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenFiles,
         IDictionary<NtfsFileId, string> pathCache,
         IReadOnlyDictionary<NtfsFileId, long> sizeByFile,
+        IReadOnlyDictionary<NtfsFileId, DateTime> lastModifiedByFile,
         IReadOnlyDictionary<NtfsFileId, AggregateInfo> aggregateByDirectory,
         string rootPrefix,
         CancellationToken ct)
@@ -829,7 +855,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                 continue;
             }
 
-            var node = CreateDirectoryNode(fullPath, depth + 1);
+            var node = CreateDirectoryNode(fullPath, depth + 1, directory.LastModified);
             node.Parent = parentNode;
             node.ChildrenLoaded = true;
 
@@ -855,6 +881,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                 childrenFiles,
                 pathCache,
                 sizeByFile,
+                lastModifiedByFile,
                 aggregateByDirectory,
                 rootPrefix,
                 ct);
@@ -871,6 +898,9 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
             var extension = Path.GetExtension(file.Name) ?? string.Empty;
             var size = sizeByFile.TryGetValue(file.Id, out var value) ? value : 0;
+            var lastModified = lastModifiedByFile.TryGetValue(file.Id, out var fileLastModified)
+                ? fileLastModified
+                : file.LastModified;
 
             var fileNode = new DiskNode
             {
@@ -879,7 +909,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                 IsDirectory = false,
                 SizeBytes = size,
                 Extension = extension.ToLowerInvariant(),
-                LastModified = DateTime.MinValue,
+                LastModified = lastModified,
                 FileCount = 1,
                 Depth = depth + 1,
                 Parent = parentNode,
@@ -980,28 +1010,140 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         return path;
     }
 
-    private static long TryGetFileSize(string filePath)
+    private static FileMetadata GetFileMetadata(string filePath)
     {
         if (!GetFileAttributesEx(filePath, GetFileExInfoStandard, out var data))
         {
-            return 0;
+            if (TryGetFileMetadataByHandle(filePath, out var fallbackMetadata))
+            {
+                return fallbackMetadata;
+            }
+
+            if (IsProtectedPagingFile(filePath)
+                && TryGetCompressedFileSize(filePath, out var compressedFallbackSize)
+                && compressedFallbackSize > 0)
+            {
+                return new FileMetadata(compressedFallbackSize, DateTime.MinValue);
+            }
+
+            return default;
         }
 
         if ((data.FileAttributes & FileAttributeDirectory) != 0)
         {
-            return 0;
+            return default;
         }
 
         var size = ((ulong)data.FileSizeHigh << 32) | data.FileSizeLow;
-        if (size > long.MaxValue)
+        var normalizedSize = size > long.MaxValue ? long.MaxValue : (long)size;
+        var lastModified = DateTimeFromFileTime((((long)data.LastWriteTime.HighDateTime) << 32) | data.LastWriteTime.LowDateTime);
+
+        if (normalizedSize == 0 && IsProtectedPagingFile(filePath)
+            && TryGetFileMetadataByHandle(filePath, out var protectedMetadata)
+            && protectedMetadata.SizeBytes > 0)
         {
-            return long.MaxValue;
+            return protectedMetadata;
         }
 
-        return (long)size;
+        if (normalizedSize == 0 && IsProtectedPagingFile(filePath)
+            && TryGetCompressedFileSize(filePath, out var compressedSize)
+            && compressedSize > 0)
+        {
+            return new FileMetadata(compressedSize, lastModified);
+        }
+
+        return new FileMetadata(normalizedSize, lastModified);
     }
 
-    private static DiskNode CreateDirectoryNode(string path, int depth)
+    private static bool TryGetCompressedFileSize(string filePath, out long sizeBytes)
+    {
+        sizeBytes = 0;
+
+        var lowSize = GetCompressedFileSize(filePath, out var highSize);
+        if (lowSize == InvalidFileSize && Marshal.GetLastWin32Error() != 0)
+        {
+            return false;
+        }
+
+        var size = ((ulong)highSize << 32) | lowSize;
+        sizeBytes = size > long.MaxValue ? long.MaxValue : (long)size;
+        return true;
+    }
+
+    private static bool TryGetFileMetadataByHandle(string filePath, out FileMetadata metadata)
+    {
+        metadata = default;
+
+        using var handle = CreateFile(
+            filePath,
+            FileReadAttributes,
+            FileShareRead | FileShareWrite | FileShareDelete,
+            IntPtr.Zero,
+            OpenExisting,
+            0,
+            IntPtr.Zero);
+
+        if (handle.IsInvalid)
+        {
+            return false;
+        }
+
+        if (!GetFileInformationByHandleEx(handle, FileStandardInfoClass, out FileStandardInfo standardInfo, (uint)Marshal.SizeOf<FileStandardInfo>()))
+        {
+            return false;
+        }
+
+        if (standardInfo.Directory)
+        {
+            return false;
+        }
+
+        var lastModified = DateTime.MinValue;
+        if (GetFileTime(handle, out _, out _, out var writeTime))
+        {
+            lastModified = DateTimeFromFileTime((((long)writeTime.HighDateTime) << 32) | writeTime.LowDateTime);
+        }
+
+        metadata = new FileMetadata(standardInfo.EndOfFile, lastModified);
+        return true;
+    }
+
+    private static bool IsProtectedPagingFile(string filePath)
+    {
+        var name = Path.GetFileName(filePath);
+        return string.Equals(name, "pagefile.sys", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "hiberfil.sys", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "swapfile.sys", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DateTime TryGetPathLastWriteTime(string path)
+    {
+        if (!GetFileAttributesEx(path, GetFileExInfoStandard, out var data))
+        {
+            return DateTime.MinValue;
+        }
+
+        return DateTimeFromFileTime((((long)data.LastWriteTime.HighDateTime) << 32) | data.LastWriteTime.LowDateTime);
+    }
+
+    private static DateTime DateTimeFromFileTime(long fileTime)
+    {
+        if (fileTime <= 0)
+        {
+            return DateTime.MinValue;
+        }
+
+        try
+        {
+            return DateTime.FromFileTimeUtc(fileTime).ToLocalTime();
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    private static DiskNode CreateDirectoryNode(string path, int depth, DateTime lastModified)
     {
         var trimmed = path.TrimEnd(Path.DirectorySeparatorChar);
         var name = Path.GetFileName(trimmed);
@@ -1015,7 +1157,7 @@ public sealed class NtfsFastScanService : INtfsFastScanService
             Name = name,
             FullPath = path,
             IsDirectory = true,
-            LastModified = DateTime.MinValue,
+            LastModified = lastModified,
             Depth = depth
         };
     }
@@ -1074,18 +1216,32 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
     private readonly struct UsnEntry
     {
-        public UsnEntry(NtfsFileId id, NtfsFileId parentId, string name, bool isDirectory)
+        public UsnEntry(NtfsFileId id, NtfsFileId parentId, string name, bool isDirectory, DateTime lastModified)
         {
             Id = id;
             ParentId = parentId;
             Name = name;
             IsDirectory = isDirectory;
+            LastModified = lastModified;
         }
 
         public NtfsFileId Id { get; }
         public NtfsFileId ParentId { get; }
         public string Name { get; }
         public bool IsDirectory { get; }
+        public DateTime LastModified { get; }
+    }
+
+    private readonly struct FileMetadata
+    {
+        public FileMetadata(long sizeBytes, DateTime lastModified)
+        {
+            SizeBytes = sizeBytes;
+            LastModified = lastModified;
+        }
+
+        public long SizeBytes { get; }
+        public DateTime LastModified { get; }
     }
 
     private readonly struct FileWorkItem
@@ -1163,6 +1319,16 @@ public sealed class NtfsFastScanService : INtfsFastScanService
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct FileStandardInfo
+    {
+        public long AllocationSize;
+        public long EndOfFile;
+        public uint NumberOfLinks;
+        [MarshalAs(UnmanagedType.U1)] public bool DeletePending;
+        [MarshalAs(UnmanagedType.U1)] public bool Directory;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct FileTime
     {
         public uint LowDateTime;
@@ -1221,9 +1387,28 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         IntPtr fileInformation,
         uint bufferSize);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandleEx(
+        SafeFileHandle handle,
+        int fileInformationClass,
+        out FileStandardInfo fileInformation,
+        uint bufferSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileTime(
+        SafeFileHandle handle,
+        out FileTime creationTime,
+        out FileTime lastAccessTime,
+        out FileTime lastWriteTime);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool GetFileAttributesEx(
         string name,
         int fileInfoLevelId,
         out Win32FileAttributeData fileInformation);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "GetCompressedFileSizeW")]
+    private static extern uint GetCompressedFileSize(
+        string fileName,
+        out uint fileSizeHigh);
 }

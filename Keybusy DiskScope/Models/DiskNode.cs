@@ -6,7 +6,9 @@ namespace Keybusy_DiskScope.Models;
 public sealed class DiskNode
 {
     public bool IsPlaceholder { get; init; }
+    public bool IsFileGroup { get; init; }
     public bool IsNotPlaceholder => !IsPlaceholder;
+    public bool IsActionable => !IsPlaceholder && !IsFileGroup;
     public bool IsFile => !IsDirectory;
     public string Name { get; init; } = string.Empty;
     public string FullPath { get; init; } = string.Empty;

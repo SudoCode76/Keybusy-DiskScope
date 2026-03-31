@@ -19,10 +19,10 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     {
         _useColoredFolderIcons = ReadBool(UseColoredFolderIconsKey, defaultValue: false);
         _appThemePreference = ReadEnum(AppThemePreferenceKey, Models.AppThemePreference.System);
-        _defaultSortIndex = ReadInt(DefaultSortIndexKey, defaultValue: 1);
+        _defaultSortIndex = NormalizeSortIndex(ReadInt(DefaultSortIndexKey, defaultValue: 1));
         _defaultSortDescending = ReadBool(DefaultSortDescendingKey, defaultValue: true);
         _enableFastNtfsScan = ReadBool(EnableFastNtfsScanKey, defaultValue: true);
-        _forceFastNtfsOnly = ReadBool(ForceFastNtfsOnlyKey, defaultValue: false);
+        _forceFastNtfsOnly = ReadBool(ForceFastNtfsOnlyKey, defaultValue: true);
         UpdateFolderIconBrush(_useColoredFolderIcons);
     }
 
@@ -57,8 +57,18 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
 
     partial void OnDefaultSortIndexChanged(int value)
     {
-        WriteInt(DefaultSortIndexKey, value);
+        var normalized = NormalizeSortIndex(value);
+        if (normalized != value)
+        {
+            _defaultSortIndex = normalized;
+            OnPropertyChanged(nameof(DefaultSortIndex));
+        }
+
+        WriteInt(DefaultSortIndexKey, normalized);
     }
+
+    private static int NormalizeSortIndex(int value)
+        => Math.Clamp(value, 0, 3);
 
     partial void OnDefaultSortDescendingChanged(bool value)
     {
