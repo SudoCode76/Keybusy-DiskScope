@@ -52,6 +52,23 @@ public sealed class SettingsViewModel : ObservableObject
 
             _settingsService.EnableFastNtfsScan = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(ForceFastNtfsOnly));
+        }
+    }
+
+    public bool ForceFastNtfsOnly
+    {
+        get => _settingsService.ForceFastNtfsOnly;
+        set
+        {
+            if (_settingsService.ForceFastNtfsOnly == value)
+            {
+                return;
+            }
+
+            _settingsService.ForceFastNtfsOnly = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EnableFastNtfsScan));
         }
     }
 
@@ -135,6 +152,13 @@ public sealed class SettingsViewModel : ObservableObject
 
         if (string.Equals(e.PropertyName, nameof(ISettingsService.EnableFastNtfsScan), StringComparison.Ordinal))
         {
+            OnPropertyChanged(nameof(EnableFastNtfsScan));
+            OnPropertyChanged(nameof(ForceFastNtfsOnly));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.ForceFastNtfsOnly), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(ForceFastNtfsOnly));
             OnPropertyChanged(nameof(EnableFastNtfsScan));
         }
     }

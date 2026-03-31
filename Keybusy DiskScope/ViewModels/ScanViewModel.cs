@@ -175,6 +175,7 @@ public partial class ScanViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Scan failed for {Drive}", SelectedDrive);
+            UpdateScanEngineStatus();
             ErrorMessage = ex.Message;
         }
         finally

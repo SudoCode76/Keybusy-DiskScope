@@ -54,18 +54,32 @@ public sealed class ScanService : IScanService
                 {
                     _logger.LogInformation("Using fast NTFS scan path for {RootPath}", rootPath);
                     LastScanEngineType = ScanEngineType.FastNtfs;
-                    LastScanEngineDetail = "NTFS rapido";
+                    LastScanEngineDetail = string.IsNullOrWhiteSpace(_ntfsFastScanService.LastRunSummary)
+                        ? "NTFS rapido"
+                        : $"NTFS rapido ({_ntfsFastScanService.LastRunSummary})";
                     return fastResult;
                 }
 
                 LastScanEngineType = ScanEngineType.FastNtfsFallbackClassic;
-                LastScanEngineDetail = "Fallback a clasico (no disponible)";
+                LastScanEngineDetail = $"Fallback a clasico ({_ntfsFastScanService.LastFailureDetail})";
+
+                if (_settingsService.ForceFastNtfsOnly)
+                {
+                    throw new InvalidOperationException($"Modo estricto activo. NTFS rapido no disponible: {_ntfsFastScanService.LastFailureDetail}");
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Fast NTFS scan failed for {RootPath}, falling back to standard scan", rootPath);
                 LastScanEngineType = ScanEngineType.FastNtfsFallbackClassic;
-                LastScanEngineDetail = "Fallback a clasico (error en NTFS rapido)";
+                LastScanEngineDetail = string.IsNullOrWhiteSpace(_ntfsFastScanService.LastFailureDetail)
+                    ? "Fallback a clasico (error en NTFS rapido)"
+                    : $"Fallback a clasico ({_ntfsFastScanService.LastFailureDetail})";
+
+                if (_settingsService.ForceFastNtfsOnly)
+                {
+                    throw;
+                }
             }
         }
         else

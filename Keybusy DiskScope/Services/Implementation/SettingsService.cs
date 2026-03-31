@@ -13,6 +13,7 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     private const string DefaultSortIndexKey = "DefaultSortIndex";
     private const string DefaultSortDescendingKey = "DefaultSortDescending";
     private const string EnableFastNtfsScanKey = "EnableFastNtfsScan";
+    private const string ForceFastNtfsOnlyKey = "ForceFastNtfsOnly";
 
     public SettingsService()
     {
@@ -21,6 +22,7 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
         _defaultSortIndex = ReadInt(DefaultSortIndexKey, defaultValue: 1);
         _defaultSortDescending = ReadBool(DefaultSortDescendingKey, defaultValue: true);
         _enableFastNtfsScan = ReadBool(EnableFastNtfsScanKey, defaultValue: true);
+        _forceFastNtfsOnly = ReadBool(ForceFastNtfsOnlyKey, defaultValue: false);
         UpdateFolderIconBrush(_useColoredFolderIcons);
     }
 
@@ -38,6 +40,9 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
 
     [ObservableProperty]
     private bool _enableFastNtfsScan;
+
+    [ObservableProperty]
+    private bool _forceFastNtfsOnly;
 
     partial void OnUseColoredFolderIconsChanged(bool value)
     {
@@ -63,6 +68,21 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     partial void OnEnableFastNtfsScanChanged(bool value)
     {
         WriteBool(EnableFastNtfsScanKey, value);
+
+        if (!value && ForceFastNtfsOnly)
+        {
+            ForceFastNtfsOnly = false;
+        }
+    }
+
+    partial void OnForceFastNtfsOnlyChanged(bool value)
+    {
+        WriteBool(ForceFastNtfsOnlyKey, value);
+
+        if (value && !EnableFastNtfsScan)
+        {
+            EnableFastNtfsScan = true;
+        }
     }
 
     private static void UpdateFolderIconBrush(bool useColored)

@@ -56,6 +56,18 @@
                 </Grid>
 
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="Solo NTFS rapido (estricto)"
+                               FontWeight="SemiBold" />
+                    <ToggleSwitch Grid.Column="1"
+                                  IsOn="{x:Bind ViewModel.ForceFastNtfsOnly, Mode=TwoWay}"
+                                  AutomationProperties.Name="Activar solo escaneo NTFS rapido" />
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Text="Si no se puede usar NTFS rapido, el analisis se cancela y no usa el modo clasico."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
                     <TextBlock Text="Tema de la aplicacion"
                                FontWeight="SemiBold" />
                     <ComboBox Grid.Column="1"

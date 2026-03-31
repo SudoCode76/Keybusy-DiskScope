@@ -4,6 +4,7 @@ public interface ISettingsService
 {
     bool UseColoredFolderIcons { get; set; }
     bool EnableFastNtfsScan { get; set; }
+    bool ForceFastNtfsOnly { get; set; }
     Models.AppThemePreference AppThemePreference { get; set; }
     int DefaultSortIndex { get; set; }
     bool DefaultSortDescending { get; set; }

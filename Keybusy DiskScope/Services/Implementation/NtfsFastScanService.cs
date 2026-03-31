@@ -1,13 +1,14 @@
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
+
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 
 namespace Keybusy_DiskScope.Services.Implementation;
 
 public sealed class NtfsFastScanService : INtfsFastScanService
 {
-    private const ulong FrnMask = 0x0000FFFFFFFFFFFF;
     private const uint GenericRead = 0x80000000;
     private const uint FileReadAttributes = 0x80;
     private const uint FileShareRead = 0x00000001;
@@ -20,8 +21,15 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
     private const uint FsctlEnumUsnData = 0x000900b3;
     private const uint FsctlQueryUsnJournal = 0x000900f4;
+    private const int GetFileExInfoStandard = 0;
+
+    private const int FileIdInfoClass = 18;
+    private static readonly NtfsFileId NtfsRootFrn = NtfsFileId.FromUInt64(5);
 
     private readonly ILogger<NtfsFastScanService> _logger;
+
+    public string LastFailureDetail { get; private set; } = string.Empty;
+    public string LastRunSummary { get; private set; } = string.Empty;
 
     public NtfsFastScanService(ILogger<NtfsFastScanService> logger)
     {
@@ -41,29 +49,47 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         IProgress<(long BytesScanned, string CurrentPath)>? progress,
         CancellationToken ct)
     {
+        LastFailureDetail = string.Empty;
+        LastRunSummary = string.Empty;
+
+        var currentStage = "inicio";
+        var totalTimer = System.Diagnostics.Stopwatch.StartNew();
+        var stageTimer = System.Diagnostics.Stopwatch.StartNew();
+        var usnStageMs = 0L;
+        var graphStageMs = 0L;
+        var aggregateStageMs = 0L;
+        var treeStageMs = 0L;
+
+        DiskNode? Fail(string detail)
+        {
+            LastFailureDetail = detail;
+            LastRunSummary = $"fallo:{currentStage}, total:{totalTimer.ElapsedMilliseconds} ms";
+            return null;
+        }
+
         if (!IsAdministrator())
         {
-            _logger.LogInformation("Fast NTFS scan skipped: process is not elevated.");
-            return null;
+            currentStage = "admin";
+            return Fail("Se requiere ejecutar la app como administrador.");
         }
 
         var normalizedRoot = NormalizeRootPath(rootPath);
         if (normalizedRoot is null)
         {
-            _logger.LogInformation("Fast NTFS scan skipped: invalid root path {RootPath}", rootPath);
-            return null;
+            currentStage = "validacion-ruta";
+            return Fail("Ruta raiz invalida para analisis rapido NTFS.");
         }
 
         if (!IsNtfsRoot(normalizedRoot))
         {
-            _logger.LogInformation("Fast NTFS scan skipped: {RootPath} is not NTFS.", normalizedRoot);
-            return null;
+            currentStage = "validacion-ntfs";
+            return Fail("La unidad no es NTFS.");
         }
 
         if (!TryGetVolumeHandlePath(normalizedRoot, out var volumePath))
         {
-            _logger.LogInformation("Fast NTFS scan skipped: cannot resolve volume handle for {RootPath}", normalizedRoot);
-            return null;
+            currentStage = "volumen-path";
+            return Fail("No se pudo abrir el volumen NTFS.");
         }
 
         using var volumeHandle = CreateFile(
@@ -77,94 +103,123 @@ public sealed class NtfsFastScanService : INtfsFastScanService
 
         if (volumeHandle.IsInvalid)
         {
-            _logger.LogWarning("Fast NTFS scan unavailable. CreateFile failed for {VolumePath}. Win32={Error}", volumePath, Marshal.GetLastWin32Error());
-            return null;
+            currentStage = "volumen-open";
+            return Fail($"No se pudo abrir el volumen NTFS (Win32 {Marshal.GetLastWin32Error()}).");
         }
 
-        if (!TryGetRootFrn(normalizedRoot, out var rootFrn))
+        if (!TryGetRootFileId(normalizedRoot, out var rootId))
         {
-            _logger.LogWarning("Fast NTFS scan fallback: cannot resolve root FRN for {RootPath}", normalizedRoot);
-            return null;
+            currentStage = "root-id";
+            return Fail("No se pudo resolver el identificador raiz NTFS.");
         }
 
-        if (!TryQueryUsnJournal(volumeHandle, out var usnJournalData))
+        currentStage = "usn-query";
+        stageTimer.Restart();
+        if (!TryQueryUsnJournal(volumeHandle, out var journalData))
         {
-            _logger.LogWarning("Fast NTFS scan fallback: cannot query USN journal for {RootPath}", normalizedRoot);
-            return null;
+            return Fail("No se pudo consultar el USN Journal.");
         }
 
-        var entries = new Dictionary<ulong, UsnEntry>(capacity: 256 * 1024);
-        if (!TryEnumerateUsnRecords(volumeHandle, usnJournalData.NextUsn, entries, ct))
+        var entries = new Dictionary<NtfsFileId, UsnEntry>(capacity: 256 * 1024);
+        currentStage = "usn-enum";
+        if (!TryEnumerateUsnRecords(volumeHandle, journalData.NextUsn, entries, ct))
         {
-            _logger.LogWarning("Fast NTFS scan fallback: failed enumerating USN records for {RootPath}", normalizedRoot);
-            return null;
+            return Fail("No se pudo enumerar registros NTFS del USN Journal.");
         }
+        usnStageMs = stageTimer.ElapsedMilliseconds;
 
-        var childrenDirs = new Dictionary<ulong, List<ulong>>();
-        var childrenFiles = new Dictionary<ulong, List<ulong>>();
+        currentStage = "grafo";
+        stageTimer.Restart();
+        var childrenDirs = new Dictionary<NtfsFileId, List<NtfsFileId>>();
+        var childrenFiles = new Dictionary<NtfsFileId, List<NtfsFileId>>();
         BuildChildMaps(entries, childrenDirs, childrenFiles);
 
-        var reachableDirs = BuildReachableDirectories(rootFrn, childrenDirs, entries);
-        if (!reachableDirs.Contains(rootFrn))
+        var rootResolution = ResolveBestRootCandidate(normalizedRoot, rootId, childrenDirs, childrenFiles, entries);
+        rootId = rootResolution.RootId;
+
+        var reachableDirs = rootResolution.ReachableDirs;
+        var reachableFiles = rootResolution.ReachableFiles;
+        graphStageMs = stageTimer.ElapsedMilliseconds;
+            if (reachableDirs.Count <= 1 && reachableFiles.Count == 0)
+            {
+                var topDirParent = childrenDirs
+                    .OrderByDescending(kv => kv.Value.Count)
+                    .Select(kv => $"{kv.Key.ToDebugString()}:{kv.Value.Count}")
+                    .FirstOrDefault() ?? "none";
+
+                var topFileParent = childrenFiles
+                    .OrderByDescending(kv => kv.Value.Count)
+                    .Select(kv => $"{kv.Key.ToDebugString()}:{kv.Value.Count}")
+                    .FirstOrDefault() ?? "none";
+
+                var detail =
+                    $"[NTFS128] No se encontraron entradas accesibles para el arbol NTFS. Entradas USN: {entries.Count}. " +
+                    $"ChildrenDirs:{childrenDirs.Count}, ChildrenFiles:{childrenFiles.Count}, " +
+                    $"TopDirParent:{topDirParent}, TopFileParent:{topFileParent}. " +
+                    $"Root candidates: {rootResolution.Diagnostics}.";
+                currentStage = "grafo-vacio";
+                return Fail(detail);
+            }
+
+        var rootPrefix = normalizedRoot.TrimEnd('\\');
+        var pathCache = new Dictionary<NtfsFileId, string>
         {
-            reachableDirs.Add(rootFrn);
+            [rootId] = rootPrefix
+        };
+
+        var sizeByFile = new Dictionary<NtfsFileId, long>(reachableFiles.Count);
+        var aggregateByDirectory = new Dictionary<NtfsFileId, AggregateInfo>(reachableDirs.Count);
+        foreach (var directoryId in reachableDirs)
+        {
+            aggregateByDirectory[directoryId] = new AggregateInfo();
         }
 
-        var reachableFiles = BuildReachableFiles(reachableDirs, childrenFiles);
-        if (reachableDirs.Count <= 1 && reachableFiles.Count == 0)
-        {
-            _logger.LogWarning("Fast NTFS scan fallback: no reachable entries for {RootPath}", normalizedRoot);
-            return null;
-        }
-
-        var pathCache = new Dictionary<ulong, string>();
-        pathCache[rootFrn] = normalizedRoot.TrimEnd('\\');
-
-        var sizeByFileFrn = new Dictionary<ulong, long>(reachableFiles.Count);
-        var aggregateByDirectoryFrn = new Dictionary<ulong, AggregateInfo>(reachableDirs.Count);
-        foreach (var directoryFrn in reachableDirs)
-        {
-            aggregateByDirectoryFrn[directoryFrn] = new AggregateInfo();
-        }
-
-        BuildFolderCounts(reachableDirs, entries, aggregateByDirectoryFrn, rootFrn);
-        BuildFileSizesAndCounts(
-            reachableFiles,
-            entries,
-            pathCache,
-            sizeByFileFrn,
-            aggregateByDirectoryFrn,
-            rootFrn,
-            normalizedRoot,
-            progress,
-            ct);
+        currentStage = "agregacion";
+        stageTimer.Restart();
+        BuildFileSizesAndCounts(reachableFiles, entries, pathCache, sizeByFile, aggregateByDirectory, rootId, rootPrefix, progress, ct);
+        PropagateDirectoryAggregates(rootId, childrenDirs, aggregateByDirectory);
+        aggregateStageMs = stageTimer.ElapsedMilliseconds;
 
         var rootNode = CreateDirectoryNode(normalizedRoot, depth: 0);
         rootNode.ChildrenLoaded = true;
-        rootNode.HasChildren = true;
 
+        currentStage = "arbol";
+        stageTimer.Restart();
         BuildDiskTree(
-            rootFrn,
+            rootId,
             rootNode,
             0,
-            rootFrn,
+            rootId,
             entries,
             childrenDirs,
             childrenFiles,
             pathCache,
-            sizeByFileFrn,
-            aggregateByDirectoryFrn,
-            normalizedRoot,
+            sizeByFile,
+            aggregateByDirectory,
+            rootPrefix,
             ct);
+        treeStageMs = stageTimer.ElapsedMilliseconds;
 
-        if (aggregateByDirectoryFrn.TryGetValue(rootFrn, out var rootAgg))
+        if (aggregateByDirectory.TryGetValue(rootId, out var rootAggregate))
         {
-            rootNode.SizeBytes = rootAgg.SizeBytes;
-            rootNode.FileCount = rootAgg.FileCount;
-            rootNode.FolderCount = rootAgg.FolderCount;
+            rootNode.SizeBytes = rootAggregate.SizeBytes;
+            rootNode.FileCount = rootAggregate.FileCount;
+            rootNode.FolderCount = rootAggregate.FolderCount;
         }
 
         rootNode.HasChildren = rootNode.Children.Count > 0;
+        rootNode.ChildrenLoaded = true;
+
+        LastFailureDetail = string.Empty;
+        LastRunSummary =
+            $"usn:{usnStageMs}ms, grafo:{graphStageMs}ms, exactitud:{aggregateStageMs}ms, arbol:{treeStageMs}ms, " +
+            $"entries:{entries.Count}, dirs:{reachableDirs.Count}, files:{reachableFiles.Count}, total:{totalTimer.ElapsedMilliseconds}ms";
+
+        _logger.LogInformation(
+            "Fast NTFS profiling for {RootPath}: {Summary}",
+            normalizedRoot,
+            LastRunSummary);
+
         return rootNode;
     }
 
@@ -196,12 +251,9 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         }
 
         var normalizedRoot = root.EndsWith('\\') ? root : $"{root}\\";
-        if (!string.Equals(path.TrimEnd('\\'), normalizedRoot.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return normalizedRoot;
+        return string.Equals(path.TrimEnd('\\'), normalizedRoot.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+            ? normalizedRoot
+            : null;
     }
 
     private static bool IsNtfsRoot(string rootPath)
@@ -230,10 +282,11 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         return true;
     }
 
-    private static bool TryGetRootFrn(string rootPath, out ulong rootFrn)
+    private static bool TryGetRootFileId(string rootPath, out NtfsFileId rootId)
     {
-        rootFrn = 0;
-        using var directoryHandle = CreateFile(
+        rootId = default;
+
+        using var handle = CreateFile(
             rootPath,
             FileReadAttributes,
             FileShareRead | FileShareWrite | FileShareDelete,
@@ -242,39 +295,56 @@ public sealed class NtfsFastScanService : INtfsFastScanService
             FileFlagBackupSemantics,
             IntPtr.Zero);
 
-        if (directoryHandle.IsInvalid)
+        if (handle.IsInvalid)
         {
             return false;
         }
 
-        if (!GetFileInformationByHandle(directoryHandle, out var info))
+        var fileIdInfoSize = Marshal.SizeOf<FileIdInfo>();
+        var fileIdInfoBuffer = Marshal.AllocHGlobal(fileIdInfoSize);
+        try
+        {
+            if (GetFileInformationByHandleEx(handle, FileIdInfoClass, fileIdInfoBuffer, (uint)fileIdInfoSize))
+            {
+                var info = Marshal.PtrToStructure<FileIdInfo>(fileIdInfoBuffer);
+                rootId = new NtfsFileId(info.FileIdLow, info.FileIdHigh);
+                return true;
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(fileIdInfoBuffer);
+        }
+
+        if (!GetFileInformationByHandle(handle, out var byHandleInfo))
         {
             return false;
         }
 
-        rootFrn = NormalizeFrn(((ulong)info.FileIndexHigh << 32) | info.FileIndexLow);
-        return rootFrn != 0;
+        var frn64 = ((ulong)byHandleInfo.FileIndexHigh << 32) | byHandleInfo.FileIndexLow;
+        rootId = NtfsFileId.FromUInt64(frn64);
+        return true;
     }
 
     private static bool TryQueryUsnJournal(SafeFileHandle volumeHandle, out UsnJournalDataV0 data)
     {
-        var outSize = Marshal.SizeOf<UsnJournalDataV0>();
-        var outBuffer = new byte[outSize];
-        if (!DeviceIoControl(volumeHandle, FsctlQueryUsnJournal, IntPtr.Zero, 0, outBuffer, (uint)outSize, out var bytesReturned, IntPtr.Zero)
-            || bytesReturned < outSize)
+        var size = Marshal.SizeOf<UsnJournalDataV0>();
+        var buffer = new byte[size];
+        if (!DeviceIoControl(volumeHandle, FsctlQueryUsnJournal, IntPtr.Zero, 0, buffer, (uint)size, out var bytesReturned, IntPtr.Zero)
+            || bytesReturned < size)
         {
             data = default;
             return false;
         }
 
-        data = MemoryMarshalRead<UsnJournalDataV0>(outBuffer);
+        data = ReadStruct<UsnJournalDataV0>(buffer);
         return true;
     }
 
     private static bool TryEnumerateUsnRecords(
         SafeFileHandle volumeHandle,
         long highUsn,
-        Dictionary<ulong, UsnEntry> entries,
+        Dictionary<NtfsFileId, UsnEntry> entries,
         CancellationToken ct)
     {
         var enumData = new MftEnumDataV0
@@ -285,8 +355,8 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         };
 
         var outBuffer = new byte[1024 * 1024];
-        var inBufferSize = Marshal.SizeOf<MftEnumDataV0>();
-        var inBuffer = Marshal.AllocHGlobal(inBufferSize);
+        var inSize = Marshal.SizeOf<MftEnumDataV0>();
+        var inBuffer = Marshal.AllocHGlobal(inSize);
 
         try
         {
@@ -299,20 +369,14 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                     volumeHandle,
                     FsctlEnumUsnData,
                     inBuffer,
-                    (uint)inBufferSize,
+                    (uint)inSize,
                     outBuffer,
                     (uint)outBuffer.Length,
                     out var bytesReturned,
                     IntPtr.Zero))
                 {
-                    var error = Marshal.GetLastWin32Error();
                     const int ErrorHandleEof = 38;
-                    if (error == ErrorHandleEof)
-                    {
-                        return true;
-                    }
-
-                    return false;
+                    return Marshal.GetLastWin32Error() == ErrorHandleEof;
                 }
 
                 if (bytesReturned <= sizeof(long))
@@ -334,25 +398,27 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                     var majorVersion = BitConverter.ToUInt16(outBuffer, offset + 4);
                     if (majorVersion == 2 && recordLength >= 64)
                     {
-                        var frn = NormalizeFrn(BitConverter.ToUInt64(outBuffer, offset + 8));
-                        var parentFrn = NormalizeFrn(BitConverter.ToUInt64(outBuffer, offset + 16));
-                        var fileAttributes = BitConverter.ToUInt32(outBuffer, offset + 56);
-                        var nameLength = BitConverter.ToUInt16(outBuffer, offset + 60);
-                        var nameOffset = BitConverter.ToUInt16(outBuffer, offset + 62);
+                        var id = NtfsFileId.FromUInt64(BitConverter.ToUInt64(outBuffer, offset + 8));
+                        var parent = NtfsFileId.FromUInt64(BitConverter.ToUInt64(outBuffer, offset + 16));
+                        var attributes = BitConverter.ToUInt32(outBuffer, offset + 52);
+                        var nameLength = BitConverter.ToUInt16(outBuffer, offset + 56);
+                        var nameOffset = BitConverter.ToUInt16(outBuffer, offset + 58);
+                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, attributes, nameLength, nameOffset);
+                    }
+                    else if (majorVersion == 3 && recordLength >= 76)
+                    {
+                        var id = new NtfsFileId(
+                            BitConverter.ToUInt64(outBuffer, offset + 8),
+                            BitConverter.ToUInt64(outBuffer, offset + 16));
 
-                        if (nameOffset + nameLength <= recordLength)
-                        {
-                            var name = Encoding.Unicode.GetString(outBuffer, offset + nameOffset, nameLength);
-                            if (!string.IsNullOrWhiteSpace(name))
-                            {
-                                var isDirectory = (fileAttributes & FileAttributeDirectory) != 0;
-                                var isReparsePoint = (fileAttributes & FileAttributeReparsePoint) != 0;
-                                if (!isReparsePoint)
-                                {
-                                    entries[frn] = new UsnEntry(frn, parentFrn, name, isDirectory);
-                                }
-                            }
-                        }
+                        var parent = new NtfsFileId(
+                            BitConverter.ToUInt64(outBuffer, offset + 24),
+                            BitConverter.ToUInt64(outBuffer, offset + 32));
+
+                        var attributes = BitConverter.ToUInt32(outBuffer, offset + 68);
+                        var nameLength = BitConverter.ToUInt16(outBuffer, offset + 72);
+                        var nameOffset = BitConverter.ToUInt16(outBuffer, offset + 74);
+                        TryAddEntry(entries, outBuffer, offset, recordLength, id, parent, attributes, nameLength, nameOffset);
                     }
 
                     offset += recordLength;
@@ -365,32 +431,63 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         }
     }
 
+    private static void TryAddEntry(
+        IDictionary<NtfsFileId, UsnEntry> entries,
+        byte[] buffer,
+        int recordOffset,
+        int recordLength,
+        NtfsFileId id,
+        NtfsFileId parent,
+        uint attributes,
+        ushort nameLength,
+        ushort nameOffset)
+    {
+        if (nameOffset + nameLength > recordLength)
+        {
+            return;
+        }
+
+        var name = SanitizeEntryName(Encoding.Unicode.GetString(buffer, recordOffset + nameOffset, nameLength));
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var isReparse = (attributes & FileAttributeReparsePoint) != 0;
+        if (isReparse)
+        {
+            return;
+        }
+
+        entries[id] = new UsnEntry(id, parent, name, (attributes & FileAttributeDirectory) != 0);
+    }
+
     private static void BuildChildMaps(
-        IReadOnlyDictionary<ulong, UsnEntry> entries,
-        Dictionary<ulong, List<ulong>> childrenDirs,
-        Dictionary<ulong, List<ulong>> childrenFiles)
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        Dictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        Dictionary<NtfsFileId, List<NtfsFileId>> childrenFiles)
     {
         foreach (var entry in entries.Values)
         {
             var target = entry.IsDirectory ? childrenDirs : childrenFiles;
-            if (!target.TryGetValue(entry.ParentFrn, out var list))
+            if (!target.TryGetValue(entry.ParentId, out var children))
             {
-                list = new List<ulong>();
-                target[entry.ParentFrn] = list;
+                children = new List<NtfsFileId>();
+                target[entry.ParentId] = children;
             }
 
-            list.Add(entry.Frn);
+            children.Add(entry.Id);
         }
     }
 
-    private static HashSet<ulong> BuildReachableDirectories(
-        ulong rootFrn,
-        IReadOnlyDictionary<ulong, List<ulong>> childrenDirs,
-        IReadOnlyDictionary<ulong, UsnEntry> entries)
+    private static HashSet<NtfsFileId> BuildReachableDirectories(
+        NtfsFileId rootId,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries)
     {
-        var reachable = new HashSet<ulong> { rootFrn };
-        var queue = new Queue<ulong>();
-        queue.Enqueue(rootFrn);
+        var reachable = new HashSet<NtfsFileId> { rootId };
+        var queue = new Queue<NtfsFileId>();
+        queue.Enqueue(rootId);
 
         while (queue.Count > 0)
         {
@@ -400,16 +497,16 @@ public sealed class NtfsFastScanService : INtfsFastScanService
                 continue;
             }
 
-            foreach (var childFrn in children)
+            foreach (var childId in children)
             {
-                if (!entries.TryGetValue(childFrn, out var entry) || !entry.IsDirectory)
+                if (!entries.TryGetValue(childId, out var entry) || !entry.IsDirectory)
                 {
                     continue;
                 }
 
-                if (reachable.Add(childFrn))
+                if (reachable.Add(childId))
                 {
-                    queue.Enqueue(childFrn);
+                    queue.Enqueue(childId);
                 }
             }
         }
@@ -417,223 +514,363 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         return reachable;
     }
 
-    private static List<ulong> BuildReachableFiles(
-        IEnumerable<ulong> reachableDirs,
-        IReadOnlyDictionary<ulong, List<ulong>> childrenFiles)
+    private static List<NtfsFileId> BuildReachableFiles(
+        IEnumerable<NtfsFileId> reachableDirs,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenFiles)
     {
-        var files = new List<ulong>();
-        foreach (var directoryFrn in reachableDirs)
+        var files = new List<NtfsFileId>();
+        foreach (var dir in reachableDirs)
         {
-            if (childrenFiles.TryGetValue(directoryFrn, out var fileChildren))
+            if (childrenFiles.TryGetValue(dir, out var childFiles))
             {
-                files.AddRange(fileChildren);
+                files.AddRange(childFiles);
             }
         }
 
         return files;
     }
 
-    private static void BuildFolderCounts(
-        IEnumerable<ulong> reachableDirs,
-        IReadOnlyDictionary<ulong, UsnEntry> entries,
-        IDictionary<ulong, AggregateInfo> aggregateByDirectoryFrn,
-        ulong rootFrn)
+    private static RootResolution ResolveBestRootCandidate(
+        string normalizedRoot,
+        NtfsFileId initialRoot,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenFiles,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries)
     {
-        foreach (var directoryFrn in reachableDirs)
+        var candidates = new List<NtfsFileId>
         {
-            if (directoryFrn == rootFrn)
+            initialRoot,
+            initialRoot.ToLegacy48(),
+            NtfsRootFrn
+        };
+
+        var matchedRoot = ResolveRootByTopLevelDirectoryMatches(normalizedRoot, childrenDirs, entries);
+        if (!matchedRoot.Equals(default))
+        {
+            candidates.Add(matchedRoot);
+            candidates.Add(matchedRoot.ToLegacy48());
+        }
+
+        var bestRoot = initialRoot;
+        var bestDirs = new HashSet<NtfsFileId>();
+        var bestFiles = new List<NtfsFileId>();
+        var bestScore = -1;
+        var diagnostics = new List<string>();
+
+        foreach (var candidate in candidates.Distinct())
+        {
+            var dirs = BuildReachableDirectories(candidate, childrenDirs, entries);
+            if (!dirs.Contains(candidate))
             {
-                continue;
+                dirs.Add(candidate);
             }
 
-            var currentParent = entries.TryGetValue(directoryFrn, out var dir) ? dir.ParentFrn : 0;
-            var safety = 0;
-            while (currentParent != 0 && safety < 512)
+            var files = BuildReachableFiles(dirs, childrenFiles);
+            var score = (dirs.Count * 3) + files.Count;
+            diagnostics.Add($"{candidate.ToDebugString()} => d:{dirs.Count},f:{files.Count}");
+
+            if (score > bestScore)
             {
-                if (!aggregateByDirectoryFrn.TryGetValue(currentParent, out var aggregate))
-                {
-                    break;
-                }
-
-                aggregate.FolderCount += 1;
-
-                if (currentParent == rootFrn)
-                {
-                    break;
-                }
-
-                if (!entries.TryGetValue(currentParent, out var parent))
-                {
-                    break;
-                }
-
-                if (parent.ParentFrn == currentParent)
-                {
-                    break;
-                }
-
-                currentParent = parent.ParentFrn;
-                safety += 1;
+                bestScore = score;
+                bestRoot = candidate;
+                bestDirs = dirs;
+                bestFiles = files;
             }
         }
+
+        return new RootResolution(bestRoot, bestDirs, bestFiles, string.Join(" | ", diagnostics));
+    }
+
+    private static NtfsFileId ResolveRootByTopLevelDirectoryMatches(
+        string normalizedRoot,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries)
+    {
+        var topLevelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var options = new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = false,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            };
+
+            foreach (var directoryPath in Directory.EnumerateDirectories(normalizedRoot, "*", options))
+            {
+                var name = Path.GetFileName(directoryPath.TrimEnd('\\'));
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    topLevelNames.Add(name);
+                }
+            }
+        }
+        catch
+        {
+            return default;
+        }
+
+        if (topLevelNames.Count == 0)
+        {
+            return default;
+        }
+
+        var bestScore = 0;
+        var bestRoot = default(NtfsFileId);
+
+        foreach (var item in childrenDirs)
+        {
+            var score = 0;
+            foreach (var childId in item.Value)
+            {
+                if (!entries.TryGetValue(childId, out var entry) || !entry.IsDirectory)
+                {
+                    continue;
+                }
+
+                if (topLevelNames.Contains(entry.Name))
+                {
+                    score += 1;
+                }
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestRoot = item.Key;
+            }
+        }
+
+        return bestScore >= 2 ? bestRoot : default;
     }
 
     private static void BuildFileSizesAndCounts(
-        IEnumerable<ulong> reachableFiles,
-        IReadOnlyDictionary<ulong, UsnEntry> entries,
-        IDictionary<ulong, string> pathCache,
-        IDictionary<ulong, long> sizeByFileFrn,
-        IDictionary<ulong, AggregateInfo> aggregateByDirectoryFrn,
-        ulong rootFrn,
-        string normalizedRoot,
+        IEnumerable<NtfsFileId> reachableFiles,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        IDictionary<NtfsFileId, string> pathCache,
+        IDictionary<NtfsFileId, long> sizeByFile,
+        IDictionary<NtfsFileId, AggregateInfo> aggregateByDirectory,
+        NtfsFileId rootId,
+        string rootPrefix,
         IProgress<(long BytesScanned, string CurrentPath)>? progress,
         CancellationToken ct)
     {
+        var fileWorkItems = BuildFileWorkItems(reachableFiles, entries, pathCache, rootId, rootPrefix, ct);
+        var sizes = new long[fileWorkItems.Count];
+
         var totalScanned = 0L;
         var lastReportMs = 0L;
+        aggregateByDirectory.TryGetValue(rootId, out var rootAggregate);
 
-        foreach (var fileFrn in reachableFiles)
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 12)
+        };
+
+        Parallel.For(0, fileWorkItems.Count, parallelOptions, index =>
+        {
+            parallelOptions.CancellationToken.ThrowIfCancellationRequested();
+
+            var item = fileWorkItems[index];
+            var size = TryGetFileSize(item.Path);
+            sizes[index] = size;
+
+            var scanned = Interlocked.Add(ref totalScanned, size);
+
+            if (aggregateByDirectory.TryGetValue(item.ParentId, out var parentAggregate))
+            {
+                Interlocked.Add(ref parentAggregate.DirectSizeBytes, size);
+                Interlocked.Increment(ref parentAggregate.DirectFileCount);
+            }
+            else if (rootAggregate is not null)
+            {
+                Interlocked.Add(ref rootAggregate.DirectSizeBytes, size);
+                Interlocked.Increment(ref rootAggregate.DirectFileCount);
+            }
+
+            if (progress is null)
+            {
+                return;
+            }
+
+            var now = Environment.TickCount64;
+            var last = Interlocked.Read(ref lastReportMs);
+            if (now - last >= 120 && Interlocked.CompareExchange(ref lastReportMs, now, last) == last)
+            {
+                progress.Report((scanned, item.Path));
+            }
+        });
+
+        for (var i = 0; i < fileWorkItems.Count; i += 1)
+        {
+            sizeByFile[fileWorkItems[i].FileId] = sizes[i];
+        }
+
+        progress?.Report((Interlocked.Read(ref totalScanned), rootPrefix));
+    }
+
+    private static List<FileWorkItem> BuildFileWorkItems(
+        IEnumerable<NtfsFileId> reachableFiles,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        IDictionary<NtfsFileId, string> pathCache,
+        NtfsFileId rootId,
+        string rootPrefix,
+        CancellationToken ct)
+    {
+        var workItems = new List<FileWorkItem>();
+
+        foreach (var fileId in reachableFiles)
         {
             ct.ThrowIfCancellationRequested();
-            if (!entries.TryGetValue(fileFrn, out var fileEntry))
+            if (!entries.TryGetValue(fileId, out var fileEntry))
             {
                 continue;
             }
 
-            var filePath = BuildPath(fileFrn, entries, pathCache, rootFrn, normalizedRoot);
+            var filePath = BuildPath(fileId, entries, pathCache, rootId, rootPrefix);
             if (string.IsNullOrWhiteSpace(filePath))
             {
                 continue;
             }
 
-            var size = TryGetFileSize(filePath);
-            sizeByFileFrn[fileFrn] = size;
-            totalScanned += size;
-
-            var nowMs = Environment.TickCount64;
-            if (progress is not null && nowMs - lastReportMs >= 120)
-            {
-                lastReportMs = nowMs;
-                progress.Report((totalScanned, filePath));
-            }
-
-            var currentParent = fileEntry.ParentFrn;
-            var safety = 0;
-            while (currentParent != 0 && safety < 512)
-            {
-                if (!aggregateByDirectoryFrn.TryGetValue(currentParent, out var aggregate))
-                {
-                    break;
-                }
-
-                aggregate.SizeBytes += size;
-                aggregate.FileCount += 1;
-
-                if (currentParent == rootFrn)
-                {
-                    break;
-                }
-
-                if (!entries.TryGetValue(currentParent, out var parent))
-                {
-                    break;
-                }
-
-                if (parent.ParentFrn == currentParent)
-                {
-                    break;
-                }
-
-                currentParent = parent.ParentFrn;
-                safety += 1;
-            }
+            workItems.Add(new FileWorkItem(fileId, fileEntry.ParentId, filePath));
         }
 
-        progress?.Report((totalScanned, normalizedRoot));
+        return workItems;
+    }
+
+    private static void PropagateDirectoryAggregates(
+        NtfsFileId rootId,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        IDictionary<NtfsFileId, AggregateInfo> aggregateByDirectory)
+    {
+        var stack = new Stack<(NtfsFileId Id, bool Expanded)>();
+        stack.Push((rootId, false));
+
+        while (stack.Count > 0)
+        {
+            var (id, expanded) = stack.Pop();
+            if (!aggregateByDirectory.TryGetValue(id, out var aggregate))
+            {
+                continue;
+            }
+
+            if (!expanded)
+            {
+                stack.Push((id, true));
+
+                if (childrenDirs.TryGetValue(id, out var childDirs))
+                {
+                    foreach (var childId in childDirs)
+                    {
+                        if (!childId.Equals(id) && aggregateByDirectory.ContainsKey(childId))
+                        {
+                            stack.Push((childId, false));
+                        }
+                    }
+                }
+
+                continue;
+            }
+
+            aggregate.SizeBytes = aggregate.DirectSizeBytes;
+            aggregate.FileCount = aggregate.DirectFileCount;
+            aggregate.FolderCount = 0;
+
+            if (!childrenDirs.TryGetValue(id, out var children))
+            {
+                continue;
+            }
+
+            foreach (var childId in children)
+            {
+                if (childId.Equals(id))
+                {
+                    continue;
+                }
+
+                if (!aggregateByDirectory.TryGetValue(childId, out var childAggregate))
+                {
+                    continue;
+                }
+
+                aggregate.SizeBytes += childAggregate.SizeBytes;
+                aggregate.FileCount += childAggregate.FileCount;
+                aggregate.FolderCount += 1 + childAggregate.FolderCount;
+            }
+        }
     }
 
     private static void BuildDiskTree(
-        ulong parentFrn,
+        NtfsFileId parentId,
         DiskNode parentNode,
         int depth,
-        ulong rootFrn,
-        IReadOnlyDictionary<ulong, UsnEntry> entries,
-        IReadOnlyDictionary<ulong, List<ulong>> childrenDirs,
-        IReadOnlyDictionary<ulong, List<ulong>> childrenFiles,
-        IDictionary<ulong, string> pathCache,
-        IReadOnlyDictionary<ulong, long> sizeByFileFrn,
-        IReadOnlyDictionary<ulong, AggregateInfo> aggregateByDirectoryFrn,
-        string normalizedRoot,
+        NtfsFileId rootId,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenDirs,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> childrenFiles,
+        IDictionary<NtfsFileId, string> pathCache,
+        IReadOnlyDictionary<NtfsFileId, long> sizeByFile,
+        IReadOnlyDictionary<NtfsFileId, AggregateInfo> aggregateByDirectory,
+        string rootPrefix,
         CancellationToken ct)
     {
-        var directoryChildren = new List<UsnEntry>();
-        if (childrenDirs.TryGetValue(parentFrn, out var childDirFrns))
-        {
-            foreach (var childDirFrn in childDirFrns)
-            {
-                if (entries.TryGetValue(childDirFrn, out var childDir) && childDir.IsDirectory)
-                {
-                    directoryChildren.Add(childDir);
-                }
-            }
-        }
+        var dirChildren = GetSortedChildren(parentId, childrenDirs, entries, directories: true);
+        var fileChildren = GetSortedChildren(parentId, childrenFiles, entries, directories: false);
 
-        var fileChildren = new List<UsnEntry>();
-        if (childrenFiles.TryGetValue(parentFrn, out var childFileFrns))
-        {
-            foreach (var childFileFrn in childFileFrns)
-            {
-                if (entries.TryGetValue(childFileFrn, out var childFile) && !childFile.IsDirectory)
-                {
-                    fileChildren.Add(childFile);
-                }
-            }
-        }
-
-        directoryChildren.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name));
-        fileChildren.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name));
-
-        foreach (var directory in directoryChildren)
+        foreach (var directory in dirChildren)
         {
             ct.ThrowIfCancellationRequested();
-            var fullPath = BuildPath(directory.Frn, entries, pathCache, rootFrn, normalizedRoot);
+            var fullPath = BuildPath(directory.Id, entries, pathCache, rootId, rootPrefix);
+            if (string.IsNullOrWhiteSpace(fullPath))
+            {
+                continue;
+            }
+
             var node = CreateDirectoryNode(fullPath, depth + 1);
             node.Parent = parentNode;
             node.ChildrenLoaded = true;
 
-            if (aggregateByDirectoryFrn.TryGetValue(directory.Frn, out var aggregate))
+            if (aggregateByDirectory.TryGetValue(directory.Id, out var aggregate))
             {
                 node.SizeBytes = aggregate.SizeBytes;
                 node.FileCount = aggregate.FileCount;
                 node.FolderCount = aggregate.FolderCount;
             }
 
-            node.HasChildren = (childrenDirs.TryGetValue(directory.Frn, out var dirs) && dirs.Count > 0)
-                || (childrenFiles.TryGetValue(directory.Frn, out var files) && files.Count > 0);
+            node.HasChildren = (childrenDirs.TryGetValue(directory.Id, out var subDirs) && subDirs.Count > 0)
+                || (childrenFiles.TryGetValue(directory.Id, out var subFiles) && subFiles.Count > 0);
 
             parentNode.Children.Add(node);
 
             BuildDiskTree(
-                directory.Frn,
+                directory.Id,
                 node,
                 depth + 1,
-                rootFrn,
+                rootId,
                 entries,
                 childrenDirs,
                 childrenFiles,
                 pathCache,
-                sizeByFileFrn,
-                aggregateByDirectoryFrn,
-                normalizedRoot,
+                sizeByFile,
+                aggregateByDirectory,
+                rootPrefix,
                 ct);
         }
 
         foreach (var file in fileChildren)
         {
             ct.ThrowIfCancellationRequested();
-            var fullPath = BuildPath(file.Frn, entries, pathCache, rootFrn, normalizedRoot);
+            var fullPath = BuildPath(file.Id, entries, pathCache, rootId, rootPrefix);
+            if (string.IsNullOrWhiteSpace(fullPath))
+            {
+                continue;
+            }
+
             var extension = Path.GetExtension(file.Name) ?? string.Empty;
-            var size = sizeByFileFrn.TryGetValue(file.Frn, out var value) ? value : 0;
+            var size = sizeByFile.TryGetValue(file.Id, out var value) ? value : 0;
 
             var fileNode = new DiskNode
             {
@@ -654,66 +891,114 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         }
     }
 
-    private static string BuildPath(
-        ulong frn,
-        IReadOnlyDictionary<ulong, UsnEntry> entries,
-        IDictionary<ulong, string> pathCache,
-        ulong rootFrn,
-        string normalizedRoot)
+    private static List<UsnEntry> GetSortedChildren(
+        NtfsFileId parentId,
+        IReadOnlyDictionary<NtfsFileId, List<NtfsFileId>> map,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        bool directories)
     {
-        if (pathCache.TryGetValue(frn, out var cached))
+        var result = new List<UsnEntry>();
+        if (!map.TryGetValue(parentId, out var ids))
+        {
+            return result;
+        }
+
+        foreach (var id in ids)
+        {
+            if (entries.TryGetValue(id, out var entry) && entry.IsDirectory == directories)
+            {
+                result.Add(entry);
+            }
+        }
+
+        result.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name));
+        return result;
+    }
+
+    private static string BuildPath(
+        NtfsFileId id,
+        IReadOnlyDictionary<NtfsFileId, UsnEntry> entries,
+        IDictionary<NtfsFileId, string> pathCache,
+        NtfsFileId rootId,
+        string rootPrefix)
+    {
+        if (pathCache.TryGetValue(id, out var cached))
         {
             return cached;
         }
 
-        if (!entries.TryGetValue(frn, out var entry))
+        if (!entries.TryGetValue(id, out var entry))
         {
             return string.Empty;
         }
 
-        var rootWithoutSlash = normalizedRoot.TrimEnd('\\');
-        if (frn == rootFrn)
-        {
-            pathCache[frn] = rootWithoutSlash;
-            return rootWithoutSlash;
-        }
+        var names = new Stack<string>();
+        var cursor = id;
+        var guard = 0;
 
-        var parentPath = rootWithoutSlash;
-        if (entry.ParentFrn != rootFrn && entry.ParentFrn != 0)
+        while (!cursor.Equals(rootId) && guard < 1024)
         {
-            var fromParent = BuildPath(entry.ParentFrn, entries, pathCache, rootFrn, normalizedRoot);
-            if (!string.IsNullOrWhiteSpace(fromParent))
+            if (pathCache.TryGetValue(cursor, out var cachedPath))
             {
-                parentPath = fromParent;
+                while (names.Count > 0)
+                {
+                    cachedPath = Path.Combine(cachedPath, names.Pop());
+                }
+
+                pathCache[id] = cachedPath;
+                return cachedPath;
             }
+
+            if (!entries.TryGetValue(cursor, out var current))
+            {
+                return string.Empty;
+            }
+
+            var safeName = SanitizeEntryName(current.Name);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                return string.Empty;
+            }
+
+            names.Push(safeName);
+            if (current.ParentId.Equals(cursor))
+            {
+                return string.Empty;
+            }
+
+            cursor = current.ParentId;
+            guard += 1;
         }
 
-        var fullPath = parentPath.EndsWith(':')
-            ? $"{parentPath}\\{entry.Name}"
-            : Path.Combine(parentPath, entry.Name);
+        var path = rootPrefix;
+        while (names.Count > 0)
+        {
+            path = Path.Combine(path, names.Pop());
+        }
 
-        pathCache[frn] = fullPath;
-        return fullPath;
+        pathCache[id] = path;
+        return path;
     }
-
-    private static ulong NormalizeFrn(ulong frn)
-        => frn & FrnMask;
 
     private static long TryGetFileSize(string filePath)
     {
-        try
-        {
-            var info = new FileInfo(filePath);
-            return info.Exists ? info.Length : 0;
-        }
-        catch (UnauthorizedAccessException)
+        if (!GetFileAttributesEx(filePath, GetFileExInfoStandard, out var data))
         {
             return 0;
         }
-        catch (IOException)
+
+        if ((data.FileAttributes & FileAttributeDirectory) != 0)
         {
             return 0;
         }
+
+        var size = ((ulong)data.FileSizeHigh << 32) | data.FileSizeLow;
+        if (size > long.MaxValue)
+        {
+            return long.MaxValue;
+        }
+
+        return (long)size;
     }
 
     private static DiskNode CreateDirectoryNode(string path, int depth)
@@ -735,13 +1020,28 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         };
     }
 
-    private static T MemoryMarshalRead<T>(byte[] source) where T : struct
+    private static string SanitizeEntryName(string value)
     {
-        var size = Marshal.SizeOf<T>();
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var nullIndex = value.IndexOf('\0');
+        if (nullIndex >= 0)
+        {
+            value = value[..nullIndex];
+        }
+
+        return value.Trim();
+    }
+
+    private static T ReadStruct<T>(byte[] source) where T : struct
+    {
         var handle = GCHandle.Alloc(source, GCHandleType.Pinned);
         try
         {
-            return Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject())!;
+            return Marshal.PtrToStructure<T>(handle.AddrOfPinnedObject());
         }
         finally
         {
@@ -749,27 +1049,82 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         }
     }
 
-    private sealed class AggregateInfo
+    private readonly struct NtfsFileId : IEquatable<NtfsFileId>
     {
-        public long SizeBytes;
-        public int FileCount;
-        public int FolderCount;
+        public NtfsFileId(ulong low, ulong high)
+        {
+            Low = low;
+            High = high;
+        }
+
+        public ulong Low { get; }
+        public ulong High { get; }
+
+        public static NtfsFileId FromUInt64(ulong value) => new(value, 0);
+
+        public NtfsFileId ToLegacy48()
+            => new(Low & 0x0000FFFFFFFFFFFFUL, 0);
+
+        public string ToDebugString() => $"{High:x16}:{Low:x16}";
+
+        public bool Equals(NtfsFileId other) => Low == other.Low && High == other.High;
+        public override bool Equals(object? obj) => obj is NtfsFileId other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Low, High);
     }
 
     private readonly struct UsnEntry
     {
-        public UsnEntry(ulong frn, ulong parentFrn, string name, bool isDirectory)
+        public UsnEntry(NtfsFileId id, NtfsFileId parentId, string name, bool isDirectory)
         {
-            Frn = frn;
-            ParentFrn = parentFrn;
+            Id = id;
+            ParentId = parentId;
             Name = name;
             IsDirectory = isDirectory;
         }
 
-        public ulong Frn { get; }
-        public ulong ParentFrn { get; }
+        public NtfsFileId Id { get; }
+        public NtfsFileId ParentId { get; }
         public string Name { get; }
         public bool IsDirectory { get; }
+    }
+
+    private readonly struct FileWorkItem
+    {
+        public FileWorkItem(NtfsFileId fileId, NtfsFileId parentId, string path)
+        {
+            FileId = fileId;
+            ParentId = parentId;
+            Path = path;
+        }
+
+        public NtfsFileId FileId { get; }
+        public NtfsFileId ParentId { get; }
+        public string Path { get; }
+    }
+
+    private sealed class RootResolution
+    {
+        public RootResolution(NtfsFileId rootId, HashSet<NtfsFileId> reachableDirs, List<NtfsFileId> reachableFiles, string diagnostics)
+        {
+            RootId = rootId;
+            ReachableDirs = reachableDirs;
+            ReachableFiles = reachableFiles;
+            Diagnostics = diagnostics;
+        }
+
+        public NtfsFileId RootId { get; }
+        public HashSet<NtfsFileId> ReachableDirs { get; }
+        public List<NtfsFileId> ReachableFiles { get; }
+        public string Diagnostics { get; }
+    }
+
+    private sealed class AggregateInfo
+    {
+        public long DirectSizeBytes;
+        public int DirectFileCount;
+        public long SizeBytes;
+        public int FileCount;
+        public int FolderCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -807,6 +1162,32 @@ public sealed class NtfsFastScanService : INtfsFastScanService
         public uint FileIndexLow;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileTime
+    {
+        public uint LowDateTime;
+        public uint HighDateTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Win32FileAttributeData
+    {
+        public uint FileAttributes;
+        public FileTime CreationTime;
+        public FileTime LastAccessTime;
+        public FileTime LastWriteTime;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileIdInfo
+    {
+        public ulong VolumeSerialNumber;
+        public ulong FileIdLow;
+        public ulong FileIdHigh;
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFile(
         string fileName,
@@ -832,4 +1213,17 @@ public sealed class NtfsFastScanService : INtfsFastScanService
     private static extern bool GetFileInformationByHandle(
         SafeFileHandle handle,
         out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandleEx(
+        SafeFileHandle handle,
+        int fileInformationClass,
+        IntPtr fileInformation,
+        uint bufferSize);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetFileAttributesEx(
+        string name,
+        int fileInfoLevelId,
+        out Win32FileAttributeData fileInformation);
 }
