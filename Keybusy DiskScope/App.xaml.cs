@@ -60,6 +60,7 @@ public partial class App : Application
         // Domain services
         services.AddSingleton<IDriveInfoService, DriveInfoService>();
         services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<INtfsFastScanService, NtfsFastScanService>();
         services.AddSingleton<IScanService, ScanService>();
         services.AddSingleton<ISnapshotService, SnapshotService>();
         services.AddSingleton<IFileDeleteService, FileDeleteService>();

@@ -6,9 +6,22 @@ namespace Keybusy_DiskScope.Services.Implementation;
 public sealed class ScanService : IScanService
 {
     private readonly ILogger<ScanService> _logger;
-    private readonly int _maxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount);
+    private readonly INtfsFastScanService _ntfsFastScanService;
+    private readonly ISettingsService _settingsService;
+    private readonly int _maxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
 
-    public ScanService(ILogger<ScanService> logger) => _logger = logger;
+    public ScanEngineType LastScanEngineType { get; private set; } = ScanEngineType.Unknown;
+    public string LastScanEngineDetail { get; private set; } = "Pendiente";
+
+    public ScanService(
+        ILogger<ScanService> logger,
+        INtfsFastScanService ntfsFastScanService,
+        ISettingsService settingsService)
+    {
+        _logger = logger;
+        _ntfsFastScanService = ntfsFastScanService;
+        _settingsService = settingsService;
+    }
 
     public Task<DiskNode> ScanPreviewAsync(
         string rootPath,
@@ -24,16 +37,57 @@ public sealed class ScanService : IScanService
         return Task.Run(() => LoadChildren(directoryPath, ct), ct);
     }
 
-    public Task<DiskNode> ScanFullAsync(
+    public async Task<DiskNode> ScanFullAsync(
         string rootPath,
         IProgress<(long BytesScanned, string CurrentPath)>? progress,
         CancellationToken ct)
     {
+        LastScanEngineType = ScanEngineType.Unknown;
+        LastScanEngineDetail = "Detectando motor...";
+
+        if (_settingsService.EnableFastNtfsScan)
+        {
+            try
+            {
+                var fastResult = await _ntfsFastScanService.TryScanFullAsync(rootPath, progress, ct);
+                if (fastResult is not null)
+                {
+                    _logger.LogInformation("Using fast NTFS scan path for {RootPath}", rootPath);
+                    LastScanEngineType = ScanEngineType.FastNtfs;
+                    LastScanEngineDetail = "NTFS rapido";
+                    return fastResult;
+                }
+
+                LastScanEngineType = ScanEngineType.FastNtfsFallbackClassic;
+                LastScanEngineDetail = "Fallback a clasico (no disponible)";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Fast NTFS scan failed for {RootPath}, falling back to standard scan", rootPath);
+                LastScanEngineType = ScanEngineType.FastNtfsFallbackClassic;
+                LastScanEngineDetail = "Fallback a clasico (error en NTFS rapido)";
+            }
+        }
+        else
+        {
+            LastScanEngineType = ScanEngineType.Classic;
+            LastScanEngineDetail = "Clasico (rapido NTFS desactivado)";
+        }
+
         _totalScanned = 0;
-        return Task.Run(() => ScanDirectoryParallel(rootPath, progress, ct, 0), ct);
+        _lastProgressReportMs = 0;
+        var result = await Task.Run(() => ScanDirectoryParallel(rootPath, progress, ct, 0), ct);
+        if (LastScanEngineType == ScanEngineType.Unknown)
+        {
+            LastScanEngineType = ScanEngineType.Classic;
+            LastScanEngineDetail = "Clasico";
+        }
+
+        return result;
     }
 
     private long _totalScanned;
+    private long _lastProgressReportMs;
 
     private static EnumerationOptions CreateEnumerationOptions()
         => new()
@@ -52,26 +106,26 @@ public sealed class ScanService : IScanService
 
         try
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
+            foreach (var entry in Directory.EnumerateDirectories(path, "*", options))
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (IsDirectory(entry))
-                {
-                    var child = CreateDirectoryNode(entry, depth + 1);
-                    child.HasChildren = DirectoryHasChildren(entry, options);
-                    child.Parent = node;
-                    node.Children.Add(child);
-                    node.FolderCount += 1;
-                }
-                else
-                {
-                    var fileNode = CreateFileNode(entry, depth + 1);
-                    fileNode.Parent = node;
-                    node.Children.Add(fileNode);
-                    node.SizeBytes += fileNode.SizeBytes;
-                    node.FileCount += 1;
-                }
+                var child = CreateDirectoryNode(entry, depth + 1);
+                child.HasChildren = DirectoryHasChildren(entry, options);
+                child.Parent = node;
+                node.Children.Add(child);
+                node.FolderCount += 1;
+            }
+
+            foreach (var entry in Directory.EnumerateFiles(path, "*", options))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var fileNode = CreateFileNode(entry, depth + 1);
+                fileNode.Parent = node;
+                node.Children.Add(fileNode);
+                node.SizeBytes += fileNode.SizeBytes;
+                node.FileCount += 1;
             }
         }
         catch (DirectoryNotFoundException ex)
@@ -101,21 +155,20 @@ public sealed class ScanService : IScanService
 
         try
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
+            foreach (var entry in Directory.EnumerateDirectories(path, "*", options))
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (IsDirectory(entry))
-                {
-                    var child = CreateDirectoryNode(entry, 0);
-                    child.HasChildren = DirectoryHasChildren(entry, options);
-                    child.Parent = null;
-                    results.Add(child);
-                }
-                else
-                {
-                    results.Add(CreateFileNode(entry, 0));
-                }
+                var child = CreateDirectoryNode(entry, 0);
+                child.HasChildren = DirectoryHasChildren(entry, options);
+                child.Parent = null;
+                results.Add(child);
+            }
+
+            foreach (var entry in Directory.EnumerateFiles(path, "*", options))
+            {
+                ct.ThrowIfCancellationRequested();
+                results.Add(CreateFileNode(entry, 0));
             }
         }
         catch (DirectoryNotFoundException ex)
@@ -150,25 +203,24 @@ public sealed class ScanService : IScanService
 
         try
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", options))
+            foreach (var entry in Directory.EnumerateDirectories(path, "*", options))
+            {
+                ct.ThrowIfCancellationRequested();
+                subDirs.Add(entry);
+            }
+
+            foreach (var entry in Directory.EnumerateFiles(path, "*", options))
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (IsDirectory(entry))
-                {
-                    subDirs.Add(entry);
-                }
-                else
-                {
-                    var fileNode = CreateFileNode(entry, depth + 1);
-                    fileNode.Parent = node;
-                    fileNodes.Add(fileNode);
-                    node.SizeBytes += fileNode.SizeBytes;
-                    node.FileCount += 1;
+                var fileNode = CreateFileNode(entry, depth + 1);
+                fileNode.Parent = node;
+                fileNodes.Add(fileNode);
+                node.SizeBytes += fileNode.SizeBytes;
+                node.FileCount += 1;
 
-                    Interlocked.Add(ref _totalScanned, fileNode.SizeBytes);
-                    progress?.Report((Interlocked.Read(ref _totalScanned), fileNode.FullPath));
-                }
+                var totalScanned = Interlocked.Add(ref _totalScanned, fileNode.SizeBytes);
+                ReportProgressThrottled(progress, totalScanned, fileNode.FullPath);
             }
         }
         catch (DirectoryNotFoundException ex)
@@ -241,20 +293,37 @@ public sealed class ScanService : IScanService
         node.ChildrenLoaded = true;
         SortChildren(node.Children);
 
+        if (depth == 0)
+        {
+            ReportProgressThrottled(progress, Interlocked.Read(ref _totalScanned), node.FullPath, force: true);
+        }
+
         return node;
     }
 
-    private static bool IsDirectory(string path)
+    private void ReportProgressThrottled(
+        IProgress<(long BytesScanned, string CurrentPath)>? progress,
+        long totalScanned,
+        string currentPath,
+        bool force = false)
     {
-        try
+        if (progress is null)
         {
-            var attrs = File.GetAttributes(path);
-            return (attrs & FileAttributes.Directory) != 0;
+            return;
         }
-        catch
+
+        var nowMs = Environment.TickCount64;
+        if (!force)
         {
-            return false;
+            var lastReportMs = Interlocked.Read(ref _lastProgressReportMs);
+            if (nowMs - lastReportMs < 120)
+            {
+                return;
+            }
         }
+
+        Interlocked.Exchange(ref _lastProgressReportMs, nowMs);
+        progress.Report((totalScanned, currentPath));
     }
 
     private static DiskNode CreateDirectoryNode(string path, int depth)

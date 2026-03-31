@@ -23,7 +23,7 @@
 
         <!-- Compact top bar -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
               ColumnSpacing="10"
               VerticalAlignment="Center">
             <TextBlock Grid.Column="0"
@@ -63,13 +63,23 @@
                 </Button>
             </StackPanel>
 
-            <TextBox Grid.Column="4"
+            <Border Grid.Column="4"
+                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                    CornerRadius="8"
+                    Padding="10,6"
+                    VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind ViewModel.ScanEngineLabel, Mode=OneWay}"
+                           FontWeight="SemiBold"
+                           ToolTipService.ToolTip="{x:Bind ViewModel.ScanEngineDetail, Mode=OneWay}" />
+            </Border>
+
+            <TextBox Grid.Column="5"
                      Width="200"
                      Text="{x:Bind ViewModel.SnapshotName, Mode=TwoWay}"
                      PlaceholderText="Nombre del snapshot"
                      AutomationProperties.Name="Nombre del snapshot" />
 
-            <Button Grid.Column="5"
+            <Button Grid.Column="6"
                     x:Name="SaveSnapshotButton"
                     Command="{x:Bind ViewModel.SaveSnapshotCommand}"
                     IsEnabled="{x:Bind ViewModel.IsScanning, Converter={StaticResource BoolNegationConverter}}"

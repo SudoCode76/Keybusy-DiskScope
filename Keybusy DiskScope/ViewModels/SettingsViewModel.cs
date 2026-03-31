@@ -40,6 +40,21 @@ public sealed class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<string> SortDirectionLabels => SortDirectionOptions;
 
+    public bool EnableFastNtfsScan
+    {
+        get => _settingsService.EnableFastNtfsScan;
+        set
+        {
+            if (_settingsService.EnableFastNtfsScan == value)
+            {
+                return;
+            }
+
+            _settingsService.EnableFastNtfsScan = value;
+            OnPropertyChanged();
+        }
+    }
+
     public int SelectedThemeIndex
     {
         get => (int)_settingsService.AppThemePreference;
@@ -116,6 +131,11 @@ public sealed class SettingsViewModel : ObservableObject
         if (string.Equals(e.PropertyName, nameof(ISettingsService.DefaultSortDescending), StringComparison.Ordinal))
         {
             OnPropertyChanged(nameof(DefaultSortDirectionIndex));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ISettingsService.EnableFastNtfsScan), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(EnableFastNtfsScan));
         }
     }
 }

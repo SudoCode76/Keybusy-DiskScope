@@ -41,6 +41,8 @@ public partial class ScanViewModel : ObservableObject
     [ObservableProperty] private bool _showPercentColumn = true;
     [ObservableProperty] private bool _showFilesColumn = true;
     [ObservableProperty] private bool _showModifiedColumn = true;
+    [ObservableProperty] private string _scanEngineLabel = "Motor: pendiente";
+    [ObservableProperty] private string _scanEngineDetail = string.Empty;
 
     public bool HasError => ErrorMessage is not null;
     public bool IsNotScanning => !IsScanning;
@@ -70,6 +72,7 @@ public partial class ScanViewModel : ObservableObject
         _logger = logger;
 
         StatusText = "Seleccione una unidad y pulse Escanear.";
+        ScanEngineLabel = "Motor: pendiente";
         ApplyDefaultSort();
         if (_settingsService is INotifyPropertyChanged notifier)
         {
@@ -131,17 +134,13 @@ public partial class ScanViewModel : ObservableObject
         RootNode = null;
         ProgressValue = 0;
         ScanSummary = string.Empty;
+        ScanEngineLabel = "Motor: detectando...";
+        ScanEngineDetail = string.Empty;
 
         try
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            StatusText = "Preparando vista previa...";
-
-            RootNode = await _scanService.ScanPreviewAsync(SelectedDrive, scanToken);
-            scanToken.ThrowIfCancellationRequested();
-            ApplySizePercentages(RootNode);
-
-            StatusText = "Analizando en profundidad...";
+            StatusText = "Analizando...";
             var lastUiUpdate = DateTime.MinValue;
             string? pendingPath = null;
             var progress = new Progress<(long BytesScanned, string CurrentPath)>(report =>
@@ -160,15 +159,17 @@ public partial class ScanViewModel : ObservableObject
             RootNode = await _scanService.ScanFullAsync(SelectedDrive, progress, scanToken);
             scanToken.ThrowIfCancellationRequested();
             ApplySizePercentages(RootNode);
+            UpdateScanEngineStatus();
 
             stopwatch.Stop();
-            StatusText = $"Escaneo completado: {RootNode.DisplaySize} en {SelectedDrive}";
-            ScanSummary = $"Escaneo completado en {stopwatch.Elapsed.TotalSeconds:0} segundos. {RootNode.DisplaySize} analizados.";
+            StatusText = $"Escaneo completado: {RootNode.DisplaySize} en {SelectedDrive} ({ScanEngineLabel})";
+            ScanSummary = $"Escaneo completado en {stopwatch.Elapsed.TotalSeconds:0} segundos. {RootNode.DisplaySize} analizados. {ScanEngineLabel}.";
 
             SnapshotName = $"Escaneo {DateTime.Now:dd/MM/yyyy HH:mm}";
         }
         catch (OperationCanceledException)
         {
+            UpdateScanEngineStatus();
             StatusText = "Escaneo cancelado.";
         }
         catch (Exception ex)
@@ -654,5 +655,18 @@ public partial class ScanViewModel : ObservableObject
         {
             SortLoadedChildren(child);
         }
+    }
+
+    private void UpdateScanEngineStatus()
+    {
+        ScanEngineLabel = _scanService.LastScanEngineType switch
+        {
+            ScanEngineType.FastNtfs => "Motor: NTFS rapido",
+            ScanEngineType.FastNtfsFallbackClassic => "Motor: Clasico (fallback)",
+            ScanEngineType.Classic => "Motor: Clasico",
+            _ => "Motor: desconocido"
+        };
+
+        ScanEngineDetail = _scanService.LastScanEngineDetail;
     }
 }

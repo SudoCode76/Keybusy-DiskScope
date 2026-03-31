@@ -5,6 +5,9 @@ namespace Keybusy_DiskScope.Services;
 /// </summary>
 public interface IScanService
 {
+    ScanEngineType LastScanEngineType { get; }
+    string LastScanEngineDetail { get; }
+
     Task<DiskNode> ScanPreviewAsync(
         string rootPath,
         CancellationToken ct);

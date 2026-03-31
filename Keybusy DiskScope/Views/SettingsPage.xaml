@@ -44,6 +44,18 @@
                 </Grid>
 
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="Escaneo rapido NTFS (Admin)"
+                               FontWeight="SemiBold" />
+                    <ToggleSwitch Grid.Column="1"
+                                  IsOn="{x:Bind ViewModel.EnableFastNtfsScan, Mode=TwoWay}"
+                                  AutomationProperties.Name="Activar escaneo rapido NTFS" />
+                    <TextBlock Grid.Row="1"
+                               Grid.ColumnSpan="2"
+                               Text="Usa enumeracion avanzada de NTFS para acelerar el analisis. Puede requerir ejecutar la app como administrador."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="6">
                     <TextBlock Text="Tema de la aplicacion"
                                FontWeight="SemiBold" />
                     <ComboBox Grid.Column="1"

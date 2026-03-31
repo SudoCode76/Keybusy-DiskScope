@@ -12,6 +12,7 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     private const string AppThemePreferenceKey = "AppThemePreference";
     private const string DefaultSortIndexKey = "DefaultSortIndex";
     private const string DefaultSortDescendingKey = "DefaultSortDescending";
+    private const string EnableFastNtfsScanKey = "EnableFastNtfsScan";
 
     public SettingsService()
     {
@@ -19,6 +20,7 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
         _appThemePreference = ReadEnum(AppThemePreferenceKey, Models.AppThemePreference.System);
         _defaultSortIndex = ReadInt(DefaultSortIndexKey, defaultValue: 1);
         _defaultSortDescending = ReadBool(DefaultSortDescendingKey, defaultValue: true);
+        _enableFastNtfsScan = ReadBool(EnableFastNtfsScanKey, defaultValue: true);
         UpdateFolderIconBrush(_useColoredFolderIcons);
     }
 
@@ -33,6 +35,9 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
 
     [ObservableProperty]
     private bool _defaultSortDescending;
+
+    [ObservableProperty]
+    private bool _enableFastNtfsScan;
 
     partial void OnUseColoredFolderIconsChanged(bool value)
     {
@@ -53,6 +58,11 @@ public sealed partial class SettingsService : ObservableObject, ISettingsService
     partial void OnDefaultSortDescendingChanged(bool value)
     {
         WriteBool(DefaultSortDescendingKey, value);
+    }
+
+    partial void OnEnableFastNtfsScanChanged(bool value)
+    {
+        WriteBool(EnableFastNtfsScanKey, value);
     }
 
     private static void UpdateFolderIconBrush(bool useColored)
