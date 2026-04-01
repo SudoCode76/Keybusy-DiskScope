@@ -16,6 +16,9 @@ public partial class ScanViewModel : ObservableObject
     private CancellationTokenSource? _scanCts;
     private bool _suppressDefaultSort;
     private readonly HashSet<string> _expandedFileGroups = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<DiskNode> _selectedNodes = new();
+    private int _selectionAnchorIndex = -1;
+    private int _selectionActiveIndex = -1;
 
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private bool _isSavingSnapshot;
@@ -359,18 +362,162 @@ public partial class ScanViewModel : ObservableObject
 
     [RelayCommand]
     private void SelectNode(DiskNode? node)
+        => SetSingleSelection(node);
+
+    public bool IsNodeSelected(DiskNode? node)
+        => node is not null && _selectedNodes.Contains(node);
+
+    public void SelectNodeWithModifiers(DiskNode? node, bool isCtrlPressed, bool isShiftPressed)
     {
-        if (SelectedNode is not null)
+        if (node is null)
         {
-            SelectedNode.IsSelected = false;
+            if (!isCtrlPressed && !isShiftPressed)
+            {
+                ClearSelection();
+            }
+
+            return;
         }
 
+        var nodeIndex = FindNodeIndex(node);
+        if (nodeIndex < 0)
+        {
+            SetSingleSelection(node);
+            return;
+        }
+
+        if (isShiftPressed)
+        {
+            if (_selectionAnchorIndex < 0)
+            {
+                _selectionAnchorIndex = _selectionActiveIndex >= 0 ? _selectionActiveIndex : nodeIndex;
+            }
+
+            SelectRange(_selectionAnchorIndex, nodeIndex);
+            _selectionActiveIndex = nodeIndex;
+            return;
+        }
+
+        if (isCtrlPressed)
+        {
+            ToggleSelection(node, nodeIndex);
+            return;
+        }
+
+        SetSingleSelection(node, nodeIndex);
+    }
+
+    public void ExtendSelectionByOffset(int offset)
+    {
+        if (DisplayNodes.Count == 0 || offset == 0)
+        {
+            return;
+        }
+
+        if (_selectionAnchorIndex < 0)
+        {
+            var start = offset > 0 ? 0 : DisplayNodes.Count - 1;
+            SetSingleSelection(DisplayNodes[start], start);
+            return;
+        }
+
+        if (_selectionActiveIndex < 0)
+        {
+            _selectionActiveIndex = _selectionAnchorIndex;
+        }
+
+        var targetIndex = Math.Clamp(_selectionActiveIndex + offset, 0, DisplayNodes.Count - 1);
+        SelectRange(_selectionAnchorIndex, targetIndex);
+        _selectionActiveIndex = targetIndex;
+    }
+
+    private void SetSingleSelection(DiskNode? node, int nodeIndex = -1)
+    {
+        ClearSelection();
+
+        if (node is null)
+        {
+            return;
+        }
+
+        node.IsSelected = true;
+        _selectedNodes.Add(node);
         SelectedNode = node;
-        if (SelectedNode is not null)
+
+        if (nodeIndex < 0)
         {
-            SelectedNode.IsSelected = true;
+            nodeIndex = FindNodeIndex(node);
         }
 
+        _selectionAnchorIndex = nodeIndex;
+        _selectionActiveIndex = nodeIndex;
+        ApplyDisplayNodes();
+    }
+
+    private void ToggleSelection(DiskNode node, int nodeIndex)
+    {
+        if (_selectedNodes.Remove(node))
+        {
+            node.IsSelected = false;
+            if (_selectedNodes.Count == 0)
+            {
+                SelectedNode = null;
+                _selectionAnchorIndex = -1;
+                _selectionActiveIndex = -1;
+            }
+            else if (ReferenceEquals(SelectedNode, node))
+            {
+                SelectedNode = _selectedNodes.Last();
+            }
+        }
+        else
+        {
+            node.IsSelected = true;
+            _selectedNodes.Add(node);
+            SelectedNode = node;
+            if (_selectionAnchorIndex < 0)
+            {
+                _selectionAnchorIndex = nodeIndex;
+            }
+            _selectionActiveIndex = nodeIndex;
+        }
+
+        ApplyDisplayNodes();
+    }
+
+    private void SelectRange(int startIndex, int endIndex)
+    {
+        if (DisplayNodes.Count == 0)
+        {
+            return;
+        }
+
+        var from = Math.Min(startIndex, endIndex);
+        var to = Math.Max(startIndex, endIndex);
+
+        ClearSelection();
+        for (var i = from; i <= to; i += 1)
+        {
+            var node = DisplayNodes[i];
+            node.IsSelected = true;
+            _selectedNodes.Add(node);
+        }
+
+        SelectedNode = DisplayNodes[endIndex];
+        ApplyDisplayNodes();
+    }
+
+    private void ClearSelection()
+    {
+        foreach (var selected in _selectedNodes)
+        {
+            selected.IsSelected = false;
+        }
+
+        _selectedNodes.Clear();
+        SelectedNode = null;
+        _selectionAnchorIndex = -1;
+        _selectionActiveIndex = -1;
         ApplyDisplayNodes();
     }
 
@@ -381,8 +528,6 @@ public partial class ScanViewModel : ObservableObject
         {
             return;
         }
-
-        SelectNode(node);
         if (!node.IsDirectory && !node.IsFileGroup)
         {
             return;
@@ -399,6 +544,12 @@ public partial class ScanViewModel : ObservableObject
             return;
         }
 
+        if (_selectedNodes.Contains(node) && _selectedNodes.Count > 1)
+        {
+            await DeleteNodesInternalAsync(GetSelectedActionableNodes(), permanent: false);
+            return;
+        }
+
         await DeleteNodeInternalAsync(node, permanent: false);
     }
 
@@ -412,12 +563,92 @@ public partial class ScanViewModel : ObservableObject
 
     private Task DeleteSelectedInternalAsync(bool permanent)
     {
+        var selectedNodes = GetSelectedActionableNodes();
+        if (selectedNodes.Count > 0)
+        {
+            return DeleteNodesInternalAsync(selectedNodes, permanent);
+        }
+
         if (SelectedNode is null || SelectedNode.IsFileGroup)
         {
             return Task.CompletedTask;
         }
 
         return DeleteNodeInternalAsync(SelectedNode, permanent);
+    }
+
+    private async Task DeleteNodesInternalAsync(IReadOnlyList<DiskNode> nodes, bool permanent)
+    {
+        if (nodes.Count == 0)
+        {
+            return;
+        }
+
+        var deletedCount = 0;
+        Exception? lastError = null;
+        foreach (var node in nodes.OrderByDescending(n => n.Depth))
+        {
+            try
+            {
+                await _fileDeleteService.DeleteAsync(node.FullPath, permanent, CancellationToken.None);
+                RemoveNodeFromTree(node);
+                _selectedNodes.Remove(node);
+                deletedCount += 1;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete {Path}", node.FullPath);
+                lastError = ex;
+            }
+        }
+
+        SelectedNode = _selectedNodes.Count > 0 ? _selectedNodes.Last() : null;
+        ApplyDisplayNodes();
+
+        if (lastError is not null)
+        {
+            ErrorMessage = lastError.Message;
+        }
+
+        if (deletedCount > 0)
+        {
+            StatusText = permanent
+                ? $"Eliminados permanentemente: {deletedCount:N0} elemento(s)"
+                : $"Enviados a la papelera: {deletedCount:N0} elemento(s)";
+        }
+    }
+
+    private IReadOnlyList<DiskNode> GetSelectedActionableNodes()
+    {
+        var candidates = _selectedNodes
+            .Where(node => node.IsActionable)
+            .ToList();
+
+        if (candidates.Count <= 1)
+        {
+            return candidates;
+        }
+
+        var selectedSet = new HashSet<DiskNode>(candidates);
+        return candidates
+            .Where(node => !HasSelectedAncestor(node, selectedSet))
+            .ToList();
+    }
+
+    private static bool HasSelectedAncestor(DiskNode node, IReadOnlySet<DiskNode> selectedSet)
+    {
+        var parent = node.Parent;
+        while (parent is not null)
+        {
+            if (selectedSet.Contains(parent))
+            {
+                return true;
+            }
+
+            parent = parent.Parent;
+        }
+
+        return false;
     }
 
     private async Task DeleteNodeInternalAsync(DiskNode node, bool permanent)
@@ -510,6 +741,9 @@ public partial class ScanViewModel : ObservableObject
 
     private void ApplyDisplayNodes()
     {
+        var selectedKeys = _selectedNodes.Select(GetSelectionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedNodeKey = SelectedNode is null ? null : GetSelectionKey(SelectedNode);
+
         DisplayNodes.Clear();
 
         if (RootNode is null)
@@ -527,6 +761,8 @@ public partial class ScanViewModel : ObservableObject
             AddFlattenedNode(node);
         }
 
+        RestoreSelectionAfterRefresh(selectedKeys, selectedNodeKey);
+
         HasResults = DisplayNodes.Count > 0;
         ResultsSummary = $"{DisplayNodes.Count:N0} elementos mostrados";
         RootDisplaySize = RootNode.DisplaySize;
@@ -534,6 +770,57 @@ public partial class ScanViewModel : ObservableObject
 
         SortLoadedChildren(RootNode);
     }
+
+    private void RestoreSelectionAfterRefresh(IReadOnlySet<string> selectedKeys, string? selectedNodeKey)
+    {
+        _selectedNodes.Clear();
+        SelectedNode = null;
+
+        if (selectedKeys.Count == 0)
+        {
+            _selectionAnchorIndex = -1;
+            _selectionActiveIndex = -1;
+            return;
+        }
+
+        for (var i = 0; i < DisplayNodes.Count; i += 1)
+        {
+            var node = DisplayNodes[i];
+            var key = GetSelectionKey(node);
+            var isSelected = selectedKeys.Contains(key);
+            node.IsSelected = isSelected;
+            if (!isSelected)
+            {
+                continue;
+            }
+
+            _selectedNodes.Add(node);
+            if (selectedNodeKey is not null
+                && string.Equals(selectedNodeKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                SelectedNode = node;
+                _selectionActiveIndex = i;
+            }
+        }
+
+        if (_selectedNodes.Count == 0)
+        {
+            _selectionAnchorIndex = -1;
+            _selectionActiveIndex = -1;
+            return;
+        }
+
+        if (SelectedNode is null)
+        {
+            SelectedNode = _selectedNodes.First();
+            _selectionActiveIndex = FindNodeIndex(SelectedNode);
+        }
+
+        _selectionAnchorIndex = _selectionActiveIndex;
+    }
+
+    private static string GetSelectionKey(DiskNode node)
+        => $"{node.FullPath}|{node.Name}|{node.IsFileGroup}";
 
     private void InsertChildrenIntoDisplay(DiskNode node)
     {

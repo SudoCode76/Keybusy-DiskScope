@@ -9,7 +9,15 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    x:DefaultBindMode="OneTime">
+    x:DefaultBindMode="OneTime"
+    PreviewKeyDown="Page_PreviewKeyDown">
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="Delete"
+                             Invoked="DeleteAccelerator_Invoked" />
+        <KeyboardAccelerator Key="Delete"
+                             Modifiers="Shift"
+                             Invoked="DeletePermanentAccelerator_Invoked" />
+    </Page.KeyboardAccelerators>
 
     <Grid Padding="16" RowDefinitions="Auto,Auto,*" RowSpacing="8">
 
@@ -155,7 +163,9 @@
                         <TextBlock Grid.Column="3" Text="Diferencia" FontWeight="SemiBold" HorizontalAlignment="Right" />
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                    <ScrollViewer Grid.Row="1"
+                                  x:Name="CompareResultsScroll"
+                                  VerticalScrollBarVisibility="Auto"
                                   Visibility="{x:Bind ViewModel.IsNotLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                         <ItemsRepeater ItemsSource="{x:Bind ViewModel.DisplayRows}">
                             <ItemsRepeater.Layout>
@@ -170,6 +180,10 @@
                                             RightTapped="Row_RightTapped">
                                         <Border.ContextFlyout>
                                             <MenuFlyout>
+                                                <MenuFlyoutItem Text="Abrir en Explorador"
+                                                                Tag="{x:Bind}"
+                                                                Click="OpenInExplorerMenuItem_Click"
+                                                                AutomationProperties.Name="Abrir en Explorador" />
                                                 <MenuFlyoutItem Text="Eliminar"
                                                                 Tag="{x:Bind}"
                                                                 Click="DeleteMenuItem_Click"

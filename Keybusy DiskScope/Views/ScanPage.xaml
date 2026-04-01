@@ -10,7 +10,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    x:DefaultBindMode="OneTime">
+    x:DefaultBindMode="OneTime"
+    PreviewKeyDown="Page_PreviewKeyDown">
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="Delete"
                              Invoked="DeleteAccelerator_Invoked" />
@@ -209,6 +210,11 @@
                                         RightTapped="Row_RightTapped">
                                     <Border.ContextFlyout>
                                         <MenuFlyout>
+                                            <MenuFlyoutItem Text="Abrir en Explorador"
+                                                            Tag="{x:Bind}"
+                                                            Click="OpenInExplorerMenuItem_Click"
+                                                            IsEnabled="{x:Bind IsNotPlaceholder, Mode=OneWay}"
+                                                            AutomationProperties.Name="Abrir en Explorador" />
                                             <MenuFlyoutItem Text="Eliminar"
                                                             Tag="{x:Bind}"
                                                             Click="DeleteMenuItem_Click"
@@ -233,8 +239,8 @@
                                     <StackPanel Orientation="Horizontal"
                                                 Spacing="8"
                                                 Margin="{x:Bind Depth, Converter={StaticResource DepthToThicknessConverter}, ConverterParameter=20, Mode=OneTime}">
-                                        <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
-                                                CommandParameter="{x:Bind}"
+                                        <Button Tag="{x:Bind}"
+                                                Click="RowToggle_Click"
                                                 Background="Transparent"
                                                 BorderThickness="0"
                                                 Padding="0"
@@ -246,8 +252,8 @@
                                                       Opacity="0.65"
                                                       Visibility="{x:Bind HasChildren, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         </Button>
-                                        <Button Command="{Binding ElementName=Root, Path=ViewModel.ToggleExpandAndSelectCommand}"
-                                                CommandParameter="{x:Bind}"
+                                        <Button Tag="{x:Bind}"
+                                                Click="RowToggle_Click"
                                                 Background="Transparent"
                                                 BorderThickness="0"
                                                 Padding="0"

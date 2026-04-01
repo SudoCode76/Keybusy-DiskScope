@@ -19,6 +19,9 @@ public partial class CompareViewModel : ObservableObject
     private readonly ILogger<CompareViewModel> _logger;
 
     private SnapshotRecord? _currentSnapshot;
+    private readonly HashSet<string> _selectedRowPaths = new(StringComparer.OrdinalIgnoreCase);
+    private string? _selectionAnchorPath;
+    private int _selectionActiveIndex = -1;
 
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string? _errorMessage;
@@ -159,16 +162,27 @@ public partial class CompareViewModel : ObservableObject
         _currentSnapshot = null;
         DiffRoot = null;
         DisplayRows.Clear();
+        _selectedRowPaths.Clear();
+        _selectionAnchorPath = null;
+        _selectionActiveIndex = -1;
+        SelectedRow = null;
     }
 
     private void BuildRows()
     {
-        string? selectedPath = SelectedRow?.Node.FullPath;
+        if (SelectedRow is not null)
+        {
+            _selectedRowPaths.Add(SelectedRow.Node.FullPath);
+        }
+
         DisplayRows.Clear();
 
         if (DiffRoot is null)
         {
             SelectedRow = null;
+            _selectedRowPaths.Clear();
+            _selectionAnchorPath = null;
+            _selectionActiveIndex = -1;
             return;
         }
 
@@ -182,29 +196,59 @@ public partial class CompareViewModel : ObservableObject
             }
         }
 
-        RestoreSelection(selectedPath);
+        RestoreSelectionAfterRefresh();
     }
 
-    private void RestoreSelection(string? selectedPath)
+    private void RestoreSelectionAfterRefresh()
     {
-        if (string.IsNullOrWhiteSpace(selectedPath))
+        if (_selectedRowPaths.Count == 0)
         {
             SelectedRow = null;
+            _selectionActiveIndex = -1;
             return;
         }
 
-        DiffRow? matchedRow = null;
-        foreach (var row in DisplayRows)
+        SelectedRow = null;
+        var matchedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < DisplayRows.Count; i += 1)
         {
-            bool isMatch = string.Equals(row.Node.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase);
+            var row = DisplayRows[i];
+            var isMatch = _selectedRowPaths.Contains(row.Node.FullPath);
             row.IsSelected = isMatch;
-            if (isMatch && matchedRow is null)
+            if (!isMatch)
             {
-                matchedRow = row;
+                continue;
+            }
+
+            matchedPaths.Add(row.Node.FullPath);
+            if (_selectionAnchorPath is not null
+                && string.Equals(_selectionAnchorPath, row.Node.FullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectionActiveIndex = i;
+            }
+
+            if (SelectedRow is null)
+            {
+                SelectedRow = row;
             }
         }
 
-        SelectedRow = matchedRow;
+        _selectedRowPaths.Clear();
+        foreach (var path in matchedPaths)
+        {
+            _selectedRowPaths.Add(path);
+        }
+
+        if (_selectedRowPaths.Count == 0)
+        {
+            _selectionAnchorPath = null;
+            _selectionActiveIndex = -1;
+        }
+        else if (_selectionAnchorPath is null || !_selectedRowPaths.Contains(_selectionAnchorPath))
+        {
+            _selectionAnchorPath = SelectedRow?.Node.FullPath;
+            _selectionActiveIndex = SelectedRow is null ? -1 : DisplayRows.IndexOf(SelectedRow);
+        }
     }
 
     private IEnumerable<DiffRow> CreateRowsFromNodes(IEnumerable<DiffNode> nodes, int depth)
@@ -240,17 +284,187 @@ public partial class CompareViewModel : ObservableObject
 
     [RelayCommand]
     private void SelectRow(DiffRow? row)
+        => SetSingleSelection(row);
+
+    public bool IsRowSelected(DiffRow? row)
+        => row is not null && row.IsSelected;
+
+    public void SelectRowWithModifiers(DiffRow? row, bool isCtrlPressed, bool isShiftPressed)
     {
-        if (SelectedRow is not null)
+        if (row is null)
         {
-            SelectedRow.IsSelected = false;
+            if (!isCtrlPressed && !isShiftPressed)
+            {
+                ClearSelection();
+            }
+
+            return;
         }
 
-        SelectedRow = row;
-        if (SelectedRow is not null)
+        var rowIndex = DisplayRows.IndexOf(row);
+        if (rowIndex < 0)
         {
-            SelectedRow.IsSelected = true;
+            SetSingleSelection(row);
+            return;
         }
+
+        if (isShiftPressed)
+        {
+            if (_selectionAnchorPath is null)
+            {
+                _selectionAnchorPath = SelectedRow?.Node.FullPath ?? row.Node.FullPath;
+            }
+
+            SelectRange(_selectionAnchorPath, rowIndex);
+            return;
+        }
+
+        if (isCtrlPressed)
+        {
+            ToggleSelection(row, rowIndex);
+            return;
+        }
+
+        SetSingleSelection(row, rowIndex);
+    }
+
+    public void ExtendSelectionByOffset(int offset)
+    {
+        if (DisplayRows.Count == 0 || offset == 0)
+        {
+            return;
+        }
+
+        if (_selectionAnchorPath is null)
+        {
+            var start = offset > 0 ? 0 : DisplayRows.Count - 1;
+            SetSingleSelection(DisplayRows[start], start);
+            return;
+        }
+
+        if (_selectionActiveIndex < 0)
+        {
+            _selectionActiveIndex = FindRowIndexByPath(_selectionAnchorPath);
+            if (_selectionActiveIndex < 0)
+            {
+                _selectionActiveIndex = 0;
+            }
+        }
+
+        var targetIndex = Math.Clamp(_selectionActiveIndex + offset, 0, DisplayRows.Count - 1);
+        SelectRange(_selectionAnchorPath, targetIndex);
+    }
+
+    private void SetSingleSelection(DiffRow? row, int rowIndex = -1)
+    {
+        ClearSelection();
+
+        if (row is null)
+        {
+            return;
+        }
+
+        row.IsSelected = true;
+        SelectedRow = row;
+        _selectedRowPaths.Add(row.Node.FullPath);
+        _selectionAnchorPath = row.Node.FullPath;
+
+        if (rowIndex < 0)
+        {
+            rowIndex = DisplayRows.IndexOf(row);
+        }
+
+        _selectionActiveIndex = rowIndex;
+    }
+
+    private void ToggleSelection(DiffRow row, int rowIndex)
+    {
+        if (_selectedRowPaths.Contains(row.Node.FullPath))
+        {
+            _selectedRowPaths.Remove(row.Node.FullPath);
+            row.IsSelected = false;
+
+            if (SelectedRow == row)
+            {
+                SelectedRow = DisplayRows.FirstOrDefault(current => current.IsSelected);
+            }
+
+            if (_selectedRowPaths.Count == 0)
+            {
+                _selectionAnchorPath = null;
+                _selectionActiveIndex = -1;
+            }
+        }
+        else
+        {
+            _selectedRowPaths.Add(row.Node.FullPath);
+            row.IsSelected = true;
+            SelectedRow = row;
+            _selectionActiveIndex = rowIndex;
+            _selectionAnchorPath ??= row.Node.FullPath;
+        }
+    }
+
+    private void SelectRange(string anchorPath, int targetIndex)
+    {
+        var anchorIndex = FindRowIndexByPath(anchorPath);
+
+        if (anchorIndex < 0)
+        {
+            anchorIndex = targetIndex;
+            _selectionAnchorPath = DisplayRows[targetIndex].Node.FullPath;
+        }
+
+        var from = Math.Min(anchorIndex, targetIndex);
+        var to = Math.Max(anchorIndex, targetIndex);
+
+        _selectedRowPaths.Clear();
+        foreach (var displayRow in DisplayRows)
+        {
+            displayRow.IsSelected = false;
+        }
+
+        for (var i = from; i <= to; i += 1)
+        {
+            var row = DisplayRows[i];
+            row.IsSelected = true;
+            _selectedRowPaths.Add(row.Node.FullPath);
+        }
+
+        SelectedRow = DisplayRows[targetIndex];
+        _selectionActiveIndex = targetIndex;
+        _selectionAnchorPath ??= SelectedRow.Node.FullPath;
+    }
+
+    private void ClearSelection()
+    {
+        foreach (var row in DisplayRows)
+        {
+            row.IsSelected = false;
+        }
+
+        _selectedRowPaths.Clear();
+        _selectionAnchorPath = null;
+        _selectionActiveIndex = -1;
+        SelectedRow = null;
+    }
+
+    private int FindRowIndexByPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < DisplayRows.Count; i += 1)
+        {
+            if (string.Equals(DisplayRows[i].Node.FullPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     [RelayCommand]
@@ -260,8 +474,6 @@ public partial class CompareViewModel : ObservableObject
         {
             return Task.CompletedTask;
         }
-
-        SelectRow(row);
         if (!row.HasChildren)
         {
             return Task.CompletedTask;
@@ -281,22 +493,107 @@ public partial class CompareViewModel : ObservableObject
             return;
         }
 
+        if (row.IsSelected && _selectedRowPaths.Count > 1)
+        {
+            await DeleteRowsInternalAsync(GetSelectedRowsForDeletion(), permanent: false);
+            return;
+        }
+
         if (row.Status == DiffStatus.Removed)
         {
             return;
         }
 
-        try
+        await DeleteRowsInternalAsync(new[] { row }, permanent: false);
+    }
+
+    [RelayCommand]
+    private Task DeleteSelectedRowsAsync()
+        => DeleteRowsInternalAsync(GetSelectedRowsForDeletion(), permanent: false);
+
+    [RelayCommand]
+    private Task DeleteSelectedRowsPermanentAsync()
+        => DeleteRowsInternalAsync(GetSelectedRowsForDeletion(), permanent: true);
+
+    private async Task DeleteRowsInternalAsync(IReadOnlyList<DiffRow> rows, bool permanent)
+    {
+        if (rows.Count == 0)
         {
-            await _fileDeleteService.DeleteAsync(row.Node.FullPath, permanent: false, CancellationToken.None);
-            RemoveFromTree(row.Node);
-            BuildRows();
+            return;
         }
-        catch (Exception ex)
+
+        Exception? lastError = null;
+        var deletedCount = 0;
+        foreach (var row in rows.OrderByDescending(r => r.Depth))
         {
-            _logger.LogError(ex, "Failed to delete {Path}", row.Node.FullPath);
-            ErrorMessage = ex.Message;
+            if (row.Status == DiffStatus.Removed)
+            {
+                continue;
+            }
+
+            try
+            {
+                await _fileDeleteService.DeleteAsync(row.Node.FullPath, permanent, CancellationToken.None);
+                RemoveFromTree(row.Node);
+                _selectedRowPaths.Remove(row.Node.FullPath);
+                deletedCount += 1;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete {Path}", row.Node.FullPath);
+                lastError = ex;
+            }
         }
+
+        BuildRows();
+
+        if (deletedCount == 0)
+        {
+            if (lastError is not null)
+            {
+                ErrorMessage = lastError.Message;
+            }
+
+            return;
+        }
+
+        if (lastError is not null)
+        {
+            ErrorMessage = lastError.Message;
+        }
+    }
+
+    private IReadOnlyList<DiffRow> GetSelectedRowsForDeletion()
+    {
+        var selectedRows = DisplayRows
+            .Where(row => row.IsSelected && row.CanDelete)
+            .ToList();
+
+        if (selectedRows.Count <= 1)
+        {
+            return selectedRows;
+        }
+
+        var selectedNodes = new HashSet<DiffNode>(selectedRows.Select(row => row.Node));
+        return selectedRows
+            .Where(row => !HasSelectedAncestor(row.Node, selectedNodes))
+            .ToList();
+    }
+
+    private static bool HasSelectedAncestor(DiffNode node, IReadOnlySet<DiffNode> selectedNodes)
+    {
+        var parent = node.Parent;
+        while (parent is not null)
+        {
+            if (selectedNodes.Contains(parent))
+            {
+                return true;
+            }
+
+            parent = parent.Parent;
+        }
+
+        return false;
     }
 
 
