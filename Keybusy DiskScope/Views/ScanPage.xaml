@@ -24,7 +24,7 @@
 
         <!-- Compact top bar -->
         <Grid Grid.Row="0"
-              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
               ColumnSpacing="10"
               VerticalAlignment="Center">
             <TextBlock Grid.Column="0"
@@ -83,6 +83,16 @@
                                   AutomationProperties.Name="Guardando snapshot" />
                     <FontIcon Glyph="&#xE74E;" />
                     <TextBlock Text="Guardar" />
+                </StackPanel>
+            </Button>
+
+            <Button Grid.Column="6"
+                    Click="ExportCsvButton_Click"
+                    IsEnabled="{x:Bind ViewModel.HasResults, Mode=OneWay}"
+                    AutomationProperties.Name="Exportar escaneo a CSV">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE8A5;" />
+                    <TextBlock Text="Exportar CSV" />
                 </StackPanel>
             </Button>
 

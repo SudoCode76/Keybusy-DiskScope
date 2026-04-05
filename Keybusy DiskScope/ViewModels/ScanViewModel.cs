@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 using Keybusy_DiskScope.Services;
@@ -616,6 +618,76 @@ public partial class ScanViewModel : ObservableObject
                 ? $"Eliminados permanentemente: {deletedCount:N0} elemento(s)"
                 : $"Enviados a la papelera: {deletedCount:N0} elemento(s)";
         }
+    }
+
+    public string BuildCurrentScanCsv()
+    {
+        if (RootNode is null)
+        {
+            throw new InvalidOperationException("No hay resultados para exportar.");
+        }
+
+        var builder = new StringBuilder(capacity: 1_024 * 1_024);
+        builder.AppendLine("Tipo,Profundidad,TamanoBytes,Tamano,Archivos,Carpetas,UltimaModificacion,Ruta,Nombre");
+
+        foreach (var node in EnumerateNodes(RootNode))
+        {
+            if (node.IsPlaceholder || node.IsFileGroup)
+            {
+                continue;
+            }
+
+            var type = node.IsDirectory ? "Carpeta" : "Archivo";
+            var lastModified = node.LastModified == DateTime.MinValue
+                ? string.Empty
+                : node.LastModified.ToString("yyyy-MM-dd HH:mm:ss");
+
+            AppendCsvField(builder, type);
+            builder.Append(',');
+            AppendCsvField(builder, node.Depth.ToString(CultureInfo.InvariantCulture));
+            builder.Append(',');
+            AppendCsvField(builder, node.SizeBytes.ToString(CultureInfo.InvariantCulture));
+            builder.Append(',');
+            AppendCsvField(builder, node.DisplaySize);
+            builder.Append(',');
+            AppendCsvField(builder, node.FileCount.ToString(CultureInfo.InvariantCulture));
+            builder.Append(',');
+            AppendCsvField(builder, node.FolderCount.ToString(CultureInfo.InvariantCulture));
+            builder.Append(',');
+            AppendCsvField(builder, lastModified);
+            builder.Append(',');
+            AppendCsvField(builder, node.FullPath);
+            builder.Append(',');
+            AppendCsvField(builder, node.Name);
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    private static IEnumerable<DiskNode> EnumerateNodes(DiskNode root)
+    {
+        var stack = new Stack<DiskNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            yield return node;
+
+            for (var i = node.Children.Count - 1; i >= 0; i -= 1)
+            {
+                stack.Push(node.Children[i]);
+            }
+        }
+    }
+
+    private static void AppendCsvField(StringBuilder builder, string? value)
+    {
+        var normalized = value ?? string.Empty;
+        var escaped = normalized.Replace("\"", "\"\"");
+        builder.Append('"');
+        builder.Append(escaped);
+        builder.Append('"');
     }
 
     private IReadOnlyList<DiskNode> GetSelectedActionableNodes()

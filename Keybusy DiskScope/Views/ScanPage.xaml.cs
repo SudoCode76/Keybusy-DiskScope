@@ -1,7 +1,10 @@
 using Keybusy_DiskScope.Models;
 using Keybusy_DiskScope.ViewModels;
+using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -246,5 +249,127 @@ public sealed partial class ScanPage : Page
     {
         ViewModel.IsSaveTipOpen = false;
     }
+
+    private async void ExportCsvButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ErrorMessage = null;
+        try
+        {
+            var csv = ViewModel.BuildCurrentScanCsv();
+            var fileName = BuildExportFileName(ViewModel.SelectedDrive);
+            var window = ((App)Application.Current).MainWindow;
+            if (window is null)
+            {
+                throw new InvalidOperationException("No se pudo obtener la ventana principal para exportar.");
+            }
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            var selectedPath = ShowSaveCsvDialog(hwnd, fileName);
+            if (string.IsNullOrWhiteSpace(selectedPath))
+            {
+                return;
+            }
+
+            await File.WriteAllTextAsync(selectedPath, csv);
+            ViewModel.StatusText = $"CSV exportado: {selectedPath}";
+        }
+        catch (Exception ex)
+        {
+            ViewModel.ErrorMessage = string.IsNullOrWhiteSpace(ex.Message)
+                ? "No se pudo abrir el selector de guardado para exportar CSV."
+                : ex.Message;
+        }
+    }
+
+    private static string BuildExportFileName(string? selectedDrive)
+    {
+        var driveLabel = string.IsNullOrWhiteSpace(selectedDrive)
+            ? "Drive"
+            : selectedDrive.Trim().TrimEnd('\\').Replace(':', '_').Replace('\\', '_');
+
+        return $"disk-scan-{driveLabel}-{DateTime.Now:yyyyMMdd-HHmmss}";
+    }
+
+    private static string? ShowSaveCsvDialog(IntPtr ownerHandle, string suggestedFileName)
+    {
+        var initialPath = suggestedFileName + ".csv";
+        var maxChars = 4096;
+        var fileBuffer = initialPath.PadRight(maxChars, '\0');
+
+        var openFileName = new OpenFileName
+        {
+            lStructSize = Marshal.SizeOf<OpenFileName>(),
+            hwndOwner = ownerHandle,
+            lpstrFilter = "CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0\0",
+            lpstrFile = fileBuffer,
+            nMaxFile = maxChars,
+            lpstrDefExt = "csv",
+            lpstrTitle = "Exportar analisis a CSV",
+            Flags = OfnExplorer | OfnPathMustExist | OfnOverwritePrompt | OfnHideReadOnly
+        };
+
+        var accepted = GetSaveFileName(ref openFileName);
+        if (accepted)
+        {
+            var rawPath = openFileName.lpstrFile;
+            var end = rawPath.IndexOf('\0');
+            return end >= 0 ? rawPath[..end] : rawPath;
+        }
+
+        var errorCode = CommDlgExtendedError();
+        if (errorCode == 0)
+        {
+            return null;
+        }
+
+        throw new InvalidOperationException($"No se pudo abrir el selector de guardado (codigo {errorCode}).");
+    }
+
+    private const int OfnOverwritePrompt = 0x00000002;
+    private const int OfnHideReadOnly = 0x00000004;
+    private const int OfnPathMustExist = 0x00000800;
+    private const int OfnExplorer = 0x00080000;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct OpenFileName
+    {
+        public int lStructSize;
+        public IntPtr hwndOwner;
+        public IntPtr hInstance;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpstrFilter;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrCustomFilter;
+        public int nMaxCustFilter;
+        public int nFilterIndex;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpstrFile;
+        public int nMaxFile;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrFileTitle;
+        public int nMaxFileTitle;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrInitialDir;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrTitle;
+        public int Flags;
+        public short nFileOffset;
+        public short nFileExtension;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrDefExt;
+        public IntPtr lCustData;
+        public IntPtr lpfnHook;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpTemplateName;
+        public IntPtr pvReserved;
+        public int dwReserved;
+        public int FlagsEx;
+    }
+
+    [DllImport("comdlg32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetSaveFileName([In, Out] ref OpenFileName openFileName);
+
+    [DllImport("comdlg32.dll")]
+    private static extern int CommDlgExtendedError();
 
 }
