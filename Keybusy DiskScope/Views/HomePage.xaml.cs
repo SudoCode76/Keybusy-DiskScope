@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Security.Principal;
 using Keybusy_DiskScope.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
@@ -22,9 +23,16 @@ public sealed partial class HomePage : Page
     {
         try
         {
+            if (IsRunningAsAdministrator())
+            {
+                ViewModel.DriveDiagnostics.Add("La aplicacion ya se esta ejecutando como administrador.");
+                return;
+            }
+
             if (IsPackaged())
             {
-                ViewModel.DriveDiagnostics.Add("La app empaquetada no puede elevarse. Ejecuta la version unpackaged o inicia Visual Studio como administrador.");
+                RelaunchPackagedAsAdmin();
+                Application.Current.Exit();
                 return;
             }
 
@@ -38,7 +46,8 @@ public sealed partial class HomePage : Page
             var psi = new ProcessStartInfo(exePath)
             {
                 UseShellExecute = true,
-                Verb = "runas"
+                Verb = "runas",
+                WorkingDirectory = Path.GetDirectoryName(exePath)
             };
 
             Process.Start(psi);
@@ -65,5 +74,28 @@ public sealed partial class HomePage : Page
         {
             return false;
         }
+    }
+
+    private void RelaunchPackagedAsAdmin()
+    {
+        var familyName = Windows.ApplicationModel.Package.Current.Id.FamilyName;
+        var appUserModelId = $"{familyName}!App";
+        var command = $"Start-Process 'shell:AppsFolder\\{appUserModelId}'";
+
+        var psi = new ProcessStartInfo("powershell.exe")
+        {
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{command}\"",
+            UseShellExecute = true,
+            Verb = "runas"
+        };
+
+        Process.Start(psi);
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 }
